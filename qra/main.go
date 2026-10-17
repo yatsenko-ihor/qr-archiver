@@ -11,6 +11,7 @@ package main
 //	qra info   <in.qra>
 
 import (
+	"compress/flate"
 	"flag"
 	"fmt"
 	"os"
@@ -83,7 +84,7 @@ func codesFor(total, v int, noEcc bool) int {
 // encodeAll кодує всі шматки одразу (зручно для малих даних і тестів).
 func encodeAll(data []byte, v int, noEcc bool) ([]*Code, error) {
 	var out []*Code
-	err := forEachBatch(data, v, noEcc, func(_ int, codes []*Code) error {
+	err := forEachBatch(data, v, noEcc, "", func(_ int, codes []*Code) error {
 		out = append(out, codes...)
 		return nil
 	})
@@ -93,7 +94,7 @@ func encodeAll(data []byte, v int, noEcc bool) ([]*Code, error) {
 // forEachBatch ріже data на шматки, кодує їх пакетами паралельно (по горутині на ядро)
 // і віддає кожен пакет у fn у правильному порядку. Пам'ять обмежена розміром пакета,
 // тому так можна обробити файл будь-якого розміру, не тримаючи всі матриці одночасно.
-func forEachBatch(data []byte, v int, noEcc bool, fn func(start int, codes []*Code) error) error {
+func forEachBatch(data []byte, v int, noEcc bool, label string, fn func(start int, codes []*Code) error) error {
 	cap := Capacity(v, noEcc)
 	n := (len(data) + cap - 1) / cap
 	if n < 1 {
@@ -101,6 +102,8 @@ func forEachBatch(data []byte, v int, noEcc bool, fn func(start int, codes []*Co
 	}
 	workers := runtime.GOMAXPROCS(0)
 	batch := workers * 8
+	pr := newProgress(label, n)
+	defer pr.finish()
 	for start := 0; start < n; start += batch {
 		end := start + batch
 		if end > n {
@@ -136,8 +139,85 @@ func forEachBatch(data []byte, v int, noEcc bool, fn func(start int, codes []*Co
 		if err := fn(start, codes); err != nil {
 			return err
 		}
+		pr.add(end - start)
 	}
 	return nil
+}
+
+// ---- прогрес-бар (лише коли stderr — термінал) ----
+
+type progress struct {
+	label      string
+	total      int
+	done       int
+	start      time.Time
+	lastRender time.Time
+	tty        bool
+	mu         sync.Mutex
+}
+
+func newProgress(label string, total int) *progress {
+	st, err := os.Stderr.Stat()
+	tty := err == nil && st.Mode()&os.ModeCharDevice != 0
+	return &progress{label: label, total: total, start: time.Now(), tty: tty && label != ""}
+}
+
+func (p *progress) add(n int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.done += n
+	if !p.tty || time.Since(p.lastRender) < 100*time.Millisecond && p.done < p.total {
+		return
+	}
+	p.lastRender = time.Now()
+	p.render()
+}
+
+func (p *progress) render() {
+	frac := 0.0
+	if p.total > 0 {
+		frac = float64(p.done) / float64(p.total)
+	}
+	const width = 30
+	filled := int(frac * width)
+	bar := strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
+	elapsed := time.Since(p.start)
+	eta := "—"
+	if p.done > 0 && p.done < p.total {
+		eta = (time.Duration(float64(elapsed) / frac * (1 - frac))).Round(time.Second).String()
+	}
+	fmt.Fprintf(os.Stderr, "\r%-14s [%s] %3d %%  %d/%d  %s, лишилось ~%s   ", p.label, bar, int(frac*100), p.done, p.total, elapsed.Round(time.Second), eta)
+}
+
+func (p *progress) finish() {
+	if !p.tty {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.render()
+	fmt.Fprint(os.Stderr, "\r"+strings.Repeat(" ", 110)+"\r")
+}
+
+// countWriter рахує байти, не зберігаючи їх: так міряємо розмір потоку після deflate без пам'яті.
+type countWriter struct{ n int64 }
+
+func (c *countWriter) Write(b []byte) (int, error) { c.n += int64(len(b)); return len(b), nil }
+
+// dataModuleBits — модулі даних коду у порядку розміщення зі знятою маскою, по 8 у байт
+// (те, що на сторінці експерименту називалося «усі модулі даних»).
+func dataModuleBits(c *Code) []byte {
+	out := make([]byte, (len(c.Order)+7)/8)
+	for k, idx := range c.Order {
+		b := c.Modules[idx]
+		if maskBit(c.Mask, int(idx)%c.Size, int(idx)/c.Size) {
+			b ^= 1
+		}
+		if b != 0 {
+			out[k>>3] |= 0x80 >> uint(k&7)
+		}
+	}
+	return out
 }
 
 // ---- pack ----
@@ -179,9 +259,19 @@ func cmdPack(args []string) error {
 	// порівнюємо зі шматком і викидаємо матриці. Жодних файлів кодів.
 	t1 := time.Now()
 	modules, skipped, ecc := 0, 0, 0
-	err = forEachBatch(qra, v, *noEcc, func(start int, codes []*Code) error {
+	var rawMatrix, rawData int64 // байти матриць як бітів і модулів даних без маски
+	var zMatrix, zData countWriter
+	fwMatrix, _ := flate.NewWriter(&zMatrix, flate.DefaultCompression)
+	fwData, _ := flate.NewWriter(&zData, flate.DefaultCompression)
+	err = forEachBatch(qra, v, *noEcc, "QR у пам'яті", func(start int, codes []*Code) error {
 		cap := Capacity(v, *noEcc)
 		for i, c := range codes {
+			pm := packModules(c.Modules, c.Size)
+			dm := dataModuleBits(c)
+			rawMatrix += int64(len(pm))
+			rawData += int64(len(dm))
+			fwMatrix.Write(pm)
+			fwData.Write(dm)
 			got, _, err := DecodeMatrix(c.Modules, c.Size, *noEcc)
 			if err != nil {
 				return fmt.Errorf("код %d: %w", start+i+1, err)
@@ -202,13 +292,31 @@ func cmdPack(args []string) error {
 	if err != nil {
 		return err
 	}
+	fwMatrix.Close()
+	fwData.Close()
 	kind := "стандартні, рівень L"
 	if *noEcc {
 		kind = "нестандартні, без корекції"
 	}
 	fmt.Printf("QR у пам'яті:   %d кодів %d×%d (%s), %s модулів, у %d потоках за %v\n", n, v*4+17, v*4+17, kind, human(modules), runtime.GOMAXPROCS(0), time.Since(t1).Round(time.Millisecond))
-	fmt.Printf("Після QR:       зчитано назад %s = 100,0 %% покладених; QR нічого не додав і не забрав ✓\n", human(stored))
-	fmt.Printf("                пропущено %s модулів: службові шаблони, корекція (%s), заголовки, заповнювачі\n", human(skipped), human(ecc))
+	fmt.Printf("Після QR:       зчитано назад %s = 100,0 %% покладених ✓; пропущено %s модулів (службові, корекція %s, заголовки, заповнювачі)\n", human(stored), human(skipped), human(ecc))
+	fmt.Printf("Якби зберігати самі QR-коди замість .qra:\n")
+	row := func(name string, size int64, mark string) {
+		fmt.Printf("  %-36s %14s = %7s від файлу%s\n", name, human(int(size)), pctStr(int(size), orig), mark)
+	}
+	row("матриці кодів як біти (.qrb)", rawMatrix, "")
+	row("ті самі біти після deflate", zMatrix.n, "   ← QR + стиснення QR")
+	row("модулі даних без маски після deflate", zData.n, "")
+	row("лише корисні байти (= .qra)", int64(stored), "   ← наш вибір")
+	diff := zMatrix.n - int64(stored)
+	switch {
+	case diff > 0:
+		fmt.Printf("Висновок:       QR + стиснення QR дає на %s більше (+%s), ніж .qra: QR-крок даних не зменшує, а корекція й службові модулі лише додають.\n", human(int(diff)), pctStr(int(diff), stored))
+	case diff < 0:
+		fmt.Printf("Висновок:       QR + стиснення QR несподівано менший за .qra на %s.\n", human(int(-diff)))
+	default:
+		fmt.Printf("Висновок:       QR + стиснення QR дорівнює .qra.\n")
+	}
 	return nil
 }
 
@@ -344,7 +452,7 @@ func cmdRender(args []string) error {
 			}
 			write, flush = tw.WriteCode, tw.Flush
 		}
-		err = forEachBatch(data, v, noEcc, func(_ int, codes []*Code) error {
+		err = forEachBatch(data, v, noEcc, "Запис кодів", func(_ int, codes []*Code) error {
 			for _, c := range codes {
 				if err := write(c); err != nil {
 					return err
@@ -367,7 +475,7 @@ func cmdRender(args []string) error {
 		if err := os.MkdirAll(out, 0o755); err != nil {
 			return err
 		}
-		err = forEachBatch(data, v, noEcc, func(start int, codes []*Code) error {
+		err = forEachBatch(data, v, noEcc, "Запис PNG", func(start int, codes []*Code) error {
 			errs := make([]error, len(codes))
 			var wg sync.WaitGroup
 			for i, c := range codes {
@@ -475,6 +583,7 @@ func cmdScan(args []string) error {
 	errs = make([]error, len(items))
 	var skipped int64
 	var mu sync.Mutex
+	pr := newProgress("Зчитування", len(items))
 	for i, it := range items {
 		wg.Add(1)
 		sem <- struct{}{}
@@ -490,9 +599,11 @@ func cmdScan(args []string) error {
 			mu.Lock()
 			skipped += int64(it.size*it.size - len(p)*8)
 			mu.Unlock()
+			pr.add(1)
 		}(i, it)
 	}
 	wg.Wait()
+	pr.finish()
 	for _, e := range errs {
 		if e != nil {
 			return e

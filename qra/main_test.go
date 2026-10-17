@@ -236,7 +236,7 @@ func TestForEachBatchOrderAndBatching(t *testing.T) {
 	}
 	var starts []int
 	var all []*Code
-	err := forEachBatch(data, 1, false, func(start int, codes []*Code) error {
+	err := forEachBatch(data, 1, false, "", func(start int, codes []*Code) error {
 		starts = append(starts, start)
 		all = append(all, codes...)
 		return nil
@@ -255,7 +255,7 @@ func TestForEachBatchOrderAndBatching(t *testing.T) {
 	}
 	// помилка з fn зупиняє обхід
 	calls := 0
-	err = forEachBatch(data, 1, false, func(int, []*Code) error { calls++; return os.ErrInvalid })
+	err = forEachBatch(data, 1, false, "", func(int, []*Code) error { calls++; return os.ErrInvalid })
 	if err == nil || calls != 1 {
 		t.Fatal("помилка з fn має повертатися одразу")
 	}
@@ -354,6 +354,32 @@ func TestCommandsErrors(t *testing.T) {
 	if err := cmdScan([]string{filepath.Join(dir, "part.qra"), files[0]}); err == nil {
 		t.Error("scan лише першого коду має давати помилку обірваного потоку")
 	}
+}
+
+func TestDataModuleBitsAndCountWriter(t *testing.T) {
+	c, _ := Encode([]byte("bits"), 1, false)
+	b := dataModuleBits(c)
+	if len(b) != (len(c.Order)+7)/8 {
+		t.Fatalf("довжина %d", len(b))
+	}
+	// перші 4 біти — індикатор байтового режиму 0100
+	if b[0]>>4 != 0b0100 {
+		t.Fatalf("перші біти %04b, очікував 0100", b[0]>>4)
+	}
+	var cw countWriter
+	cw.Write([]byte("abc"))
+	cw.Write(nil)
+	if cw.n != 3 {
+		t.Fatal("countWriter")
+	}
+	// прогрес без термінала мовчить і не панікує
+	p := newProgress("x", 10)
+	p.add(5)
+	p.add(5)
+	p.finish()
+	p2 := newProgress("", 0)
+	p2.add(0)
+	p2.finish()
 }
 
 func TestPctAndRatio(t *testing.T) {
