@@ -259,7 +259,7 @@ const QR = (() => {
   const NUM_BLOCKS = [[-1,1,1,1,1,1,2,2,2,2,4,4,4,4,4,6,6,6,6,7,8,8,9,9,10,12,12,12,13,14,15,16,17,18,19,19,20,21,22,24,25]];
   function numRawDataModules(v){ let r=(16*v+128)*v+64; if (v>=2){ const na=Math.floor(v/7)+2; r-=(25*na-10)*na-55; if (v>=7) r-=36; } return r; }
   const numDataCodewords=(v,e,noEcc)=>Math.floor(numRawDataModules(v)/8)-(noEcc?0:ECC_CW[e.ord][v]*NUM_BLOCKS[e.ord][v]);
-  const capacity=(v,noEcc=false)=>Math.floor((numDataCodewords(v,ECL.L,noEcc)*8-4-(v<10?8:16))/8);
+  const capacity=(v,noEcc=false)=>Math.min(v<10?255:65535,Math.floor((numDataCodewords(v,ECL.L,noEcc)*8-4-(v<10?8:16))/8)); // поле довжини у версіях 1–9 має 8 біт
   function gfMul(x,y){ let z=0; for (let i=7;i>=0;i--){ z=(z<<1)^((z>>>7)*0x11D); z^=((y>>>i)&1)*x; } return z&0xFF; }
   function rsDivisor(deg){ const r=new Array(deg).fill(0); r[deg-1]=1; let root=1; for (let i=0;i<deg;i++){ for (let j=0;j<deg;j++){ r[j]=gfMul(r[j],root); if (j+1<deg) r[j]^=r[j+1]; } root=gfMul(root,2); } return r; }
   function rsRemainder(data,div){ const r=new Array(div.length).fill(0); for (const b of data){ const f=b^r.shift(); r.push(0); div.forEach((c,i)=>{ r[i]^=gfMul(c,f); }); } return r; }

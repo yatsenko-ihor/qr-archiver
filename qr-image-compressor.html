@@ -389,7 +389,8 @@ const QR = (() => {
   }
   // noEcc — експериментальний режим: кодові слова корекції не пишуться, їхнє місце теж займають дані (сканер такий код не прочитає)
   const numDataCodewords = (v,e,noEcc) => Math.floor(numRawDataModules(v)/8) - (noEcc?0:ECC_CW[e.ord][v]*NUM_BLOCKS[e.ord][v]);
-  const capacity = (v,eName,noEcc=false) => { const e=ECL[eName]; return Math.floor((numDataCodewords(v,e,noEcc)*8 - 4 - (v<10?8:16))/8); };
+  // поле довжини у версіях 1–9 має 8 біт, тому понад 255 байт туди не записати навіть без корекції
+  const capacity = (v,eName,noEcc=false) => { const e=ECL[eName]; return Math.min(v<10?255:65535, Math.floor((numDataCodewords(v,e,noEcc)*8 - 4 - (v<10?8:16))/8)); };
 
   function gfMul(x,y){ let z=0; for (let i=7;i>=0;i--){ z=(z<<1)^((z>>>7)*0x11D); z^=((y>>>i)&1)*x; } return z&0xFF; }
   function rsDivisor(deg){ const r=new Array(deg).fill(0); r[deg-1]=1; let root=1;
