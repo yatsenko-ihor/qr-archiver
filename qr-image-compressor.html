@@ -364,10 +364,11 @@ td.best{color:var(--ok);font-weight:600}
 
 <script>
 /* ============================================================
-   QR-кодер (байтовий режим, версії 1–40, рівні L/M/Q/H).
-   Повертає матрицю модулів, карту службових модулів і порядок
-   зчитування кодових слів — усе, що потрібно наступним крокам.
+   Спільний код для головного потоку і Web Worker-ів:
+   QR-кодер (байтовий режим, версії 1–40, рівні L/M/Q/H) і власні
+   архіватори. Функція серіалізується в текст воркера через toString().
    ============================================================ */
+function sharedCode(){
 const QR = (() => {
   const ECL = { L:{ord:0,fb:1}, M:{ord:1,fb:0}, Q:{ord:2,fb:3}, H:{ord:3,fb:2} };
   const ECC_CW = [
@@ -480,36 +481,32 @@ const QR = (() => {
     for (let m=0;m<8;m++){ applyMask(m); drawFormat(m); const p=penalty(); if (p<minPen){ minPen=p; best=m; } applyMask(m); }
     applyMask(best); drawFormat(best);
 
-    return { version:v, size, modules, isFunc, ftype, mask:best, order, cwMap, dataCodewords:dataCw.length, totalCodewords:allCw.length, noEcc,
-             eccLevel:eName, payloadBytes:bytes.length, capacity:capacity(v,eName,noEcc), maskFn:MASKS[best] };
+    return { version:v, size, modules, isFunc, ftype, mask:best, order:Int32Array.from(order), cwMap:Int32Array.from(cwMap), dataCodewords:dataCw.length, totalCodewords:allCw.length, noEcc,
+             eccLevel:eName, payloadBytes:bytes.length, capacity:capacity(v,eName,noEcc) };
   }
   function alignPositions(v){ if (v===1) return []; const na=Math.floor(v/7)+2, size=v*4+17;
     const step=(v===32)?26:Math.ceil((v*4+4)/(na*2-2))*2; const r=[6]; for (let pos=size-7; r.length<na; pos-=step) r.splice(1,0,pos); return r; }
   return { encode, capacity, FT, MASKS };
 })();
 
-/* ============================================================
-   Алгоритми стиснення
-   ============================================================ */
-async function compressNative(format, bytes){
-  const cs=new CompressionStream(format); const w=cs.writable.getWriter(); w.write(bytes); w.close();
-  return new Uint8Array(await new Response(cs.readable).arrayBuffer());
-}
-function packBits(data){ const out=[]; const n=data.length; let i=0;
+// RLE (PackBits): вихід одразу в Uint8Array, максимум n + n/128 + 2 байти
+function packBits(data){ const n=data.length; const out=new Uint8Array(n+(n>>7)+2); let o=0, i=0;
   while (i<n){ let run=1; while (i+run<n && run<128 && data[i+run]===data[i]) run++;
-    if (run>=3){ out.push(257-run, data[i]); i+=run; continue; }
+    if (run>=3){ out[o++]=257-run; out[o++]=data[i]; i+=run; continue; }
     let j=i, lit=0; while (j<n && lit<128){ if (j+2<n && data[j]===data[j+1] && data[j]===data[j+2]) break; j++; lit++; }
-    out.push(lit-1); for (let k=i;k<j;k++) out.push(data[k]); i=j; }
-  return Uint8Array.from(out); }
-function lzw(data){ // класичний LZW зі змінною шириною коду 9–12 біт, без скидання словника
-  let dict=new Map(), next=258, width=9; const bits=[];
-  const emit=code=>{ for (let i=width-1;i>=0;i--) bits.push((code>>>i)&1); };
+    out[o++]=lit-1; out.set(data.subarray(i,j),o); o+=lit; i=j; }
+  return out.slice(0,o); }
+// LZW зі змінною шириною коду 9–12 біт, без скидання словника; біти пишуться напряму в байти
+function lzw(data){ const n=data.length; const out=new Uint8Array(Math.ceil(n*12/8)+16); let o=0, acc=0, nacc=0;
+  let dict=new Map(), next=258, width=9;
+  const emit=code=>{ acc=(acc<<width)|code; nacc+=width; while (nacc>=8){ out[o++]=(acc>>>(nacc-8))&255; nacc-=8; } acc&=(1<<nacc)-1; };
   let w=-1;
-  for (let i=0;i<data.length;i++){ const c=data[i]; if (w<0){ w=c; continue; } const key=w*4096+c;
+  for (let i=0;i<n;i++){ const c=data[i]; if (w<0){ w=c; continue; } const key=w*4096+c;
     if (dict.has(key)) w=dict.get(key); else { emit(w); if (next<4096){ dict.set(key,next++); if (next>(1<<width)&&width<12) width++; } w=c; } }
-  if (w>=0) emit(w);
-  const out=new Uint8Array(Math.ceil(bits.length/8)); bits.forEach((b,i)=>{ out[i>>>3]|=b<<(7-(i&7)); }); return out; }
-function huffmanSize(data){ // статичний канонічний Хаффман: 4 байти довжини + 2 байти кількості символів + (символ,довжина) + бітовий потік
+  if (w>=0) emit(w); if (nacc>0) out[o++]=(acc<<(8-nacc))&255;
+  return out.slice(0,o); }
+// Статичний канонічний Хаффман: 4 байти довжини + 2 байти кількості символів + (символ,довжина) + бітовий потік; лише розмір
+function huffmanSize(data){
   const freq=new Array(256).fill(0); for (let i=0;i<data.length;i++) freq[data[i]]++;
   let nodes=[]; freq.forEach((f,s)=>{ if (f>0) nodes.push({f,s}); });
   if (nodes.length===0) return 6;
@@ -517,18 +514,59 @@ function huffmanSize(data){ // статичний канонічний Хафф�
   while (nodes.length>1){ nodes.sort((a,b)=>a.f-b.f); const a=nodes.shift(), b=nodes.shift(); nodes.push({f:a.f+b.f,l:a,r:b}); }
   let bits=0; (function walk(n,d){ if (n.s!==undefined){ bits+=n.f*Math.max(d,1); return; } walk(n.l,d+1); walk(n.r,d+1); })(nodes[0],0);
   const syms=freq.filter(f=>f>0).length; return 6+syms*2+Math.ceil(bits/8); }
+return { QR, packBits, lzw, huffmanSize };
+}
+const SH=sharedCode(); const QR=SH.QR;
 
-// run повертає байти (щоб їх можна було покласти в QR), size — лише розмір
+/* ============================================================
+   Пул Web Worker-ів: QR-кодування шматків і власні архіватори
+   рахуються паралельно на всіх ядрах. Є запасний шлях без воркерів.
+   ============================================================ */
+function workerMain(){ const S=sharedCode();
+  self.onmessage=e=>{ const {id,type,p}=e.data;
+    try {
+      if (type==='encode'){ const q=S.QR.encode(p.bytes,p.v,p.ecl,p.noEcc); self.postMessage({id,ok:true,r:q},[q.modules.buffer,q.isFunc.buffer,q.ftype.buffer,q.order.buffer,q.cwMap.buffer]); }
+      else if (type==='compress'){ const r=p.algo==='lzw'?S.lzw(p.bytes):p.algo==='rle'?S.packBits(p.bytes):S.huffmanSize(p.bytes);
+        if (r instanceof Uint8Array) self.postMessage({id,ok:true,r},[r.buffer]); else self.postMessage({id,ok:true,r}); }
+    } catch(err){ self.postMessage({id,ok:false,err:String(err&&err.message||err)}); } }; }
+const pool=(()=>{
+  const hasWorker=typeof Worker!=='undefined'; let url=null;
+  try { if (hasWorker) url=URL.createObjectURL(new Blob([sharedCode.toString()+'\n('+workerMain.toString()+')();'],{type:'text/javascript'})); } catch(e){ url=null; }
+  const n=Math.max(2,Math.min(8,navigator.hardwareConcurrency||4));
+  const P={ size:url?n:0, workers:[], queue:[], pending:new Map(), seq:0, active:0 };
+  P.reset=()=>{ P.workers.forEach(w=>w.w.terminate()); P.pending.forEach(t=>t.reject(new Error('скасовано'))); P.pending.clear(); P.queue=[]; P.workers=[]; P.active=0;
+    if (!url) return;
+    for (let i=0;i<n;i++){ const w=new Worker(url); const rec={w,busy:false,id:0};
+      w.onmessage=e=>{ const t=P.pending.get(e.data.id); P.pending.delete(e.data.id); rec.busy=false; P.active--; if (t){ e.data.ok?t.resolve(e.data.r):t.reject(new Error(e.data.err)); } P.pump(); };
+      w.onerror=err=>{ const t=P.pending.get(rec.id); P.pending.delete(rec.id); rec.busy=false; P.active--; if (t) t.reject(new Error(err.message||'помилка воркера')); P.pump(); };
+      P.workers.push(rec); } };
+  P.pump=()=>{ for (const rec of P.workers){ if (rec.busy) continue; const t=P.queue.shift(); if (!t) return; const id=++P.seq; rec.busy=true; rec.id=id; P.active++; P.pending.set(id,t); rec.w.postMessage({id,type:t.type,p:t.p},t.transfer||[]); } };
+  P.run=(type,p,transfer)=>{ if (!url){ // без воркерів: рахуємо тут же, але асинхронно
+      return new Promise((res,rej)=>setTimeout(()=>{ try { if (type==='encode') res(SH.QR.encode(p.bytes,p.v,p.ecl,p.noEcc)); else res(p.algo==='lzw'?SH.lzw(p.bytes):p.algo==='rle'?SH.packBits(p.bytes):SH.huffmanSize(p.bytes)); } catch(e){ rej(e); } },0)); }
+    return new Promise((resolve,reject)=>{ P.queue.push({type,p,transfer,resolve,reject}); P.pump(); }); };
+  P.reset(); return P;
+})();
+
+/* ============================================================
+   Алгоритми стиснення: нативні через CompressionStream, власні у воркерах
+   ============================================================ */
+async function compressNative(format, bytes){
+  const cs=new CompressionStream(format); const w=cs.writable.getWriter(); w.write(bytes); w.close();
+  return new Uint8Array(await new Response(cs.readable).arrayBuffer());
+}
+const ownAlgo=algo=>b=>{ const c=b.slice(); return pool.run('compress',{algo,bytes:c},[c.buffer]); };
 const ALGOS=[
   { id:'gzip', name:'gzip', sub:'CompressionStream', run:b=>compressNative('gzip',b) },
   { id:'deflate', name:'deflate (zlib)', sub:'CompressionStream', run:b=>compressNative('deflate',b) },
   { id:'deflate-raw', name:'deflate-raw', sub:'без заголовків', run:b=>compressNative('deflate-raw',b) },
   { id:'brotli', name:'brotli', sub:'якщо підтримує браузер', run:b=>compressNative('brotli',b) },
-  { id:'lzw', name:'LZW', sub:'власна реалізація, 12 біт', run:async b=>lzw(b) },
-  { id:'huff', name:'Хаффман', sub:'статичний, власний, лише розмір', run:null, size:async b=>huffmanSize(b) },
-  { id:'rle', name:'RLE (PackBits)', sub:'власна реалізація', run:async b=>packBits(b) },
+  { id:'lzw', name:'LZW', sub:'власна реалізація, 12 біт, у воркері', run:ownAlgo('lzw') },
+  { id:'huff', name:'Хаффман', sub:'статичний, лише розмір, у воркері', run:ownAlgo('huff'), sizeOnly:true },
+  { id:'rle', name:'RLE (PackBits)', sub:'власна реалізація, у воркері', run:ownAlgo('rle') },
 ];
-async function algoSize(a,b){ return a.size ? a.size(b) : (await a.run(b)).length; }
+async function algoSize(a,b){ const r=await a.run(b); return typeof r==='number'?r:r.length; }
+async function bestCompressed(bytes){ const rs=await Promise.all(ALGOS.map(a=>algoSize(a,bytes).then(size=>({size,name:a.name}),()=>null)));
+  return rs.filter(Boolean).reduce((b,r)=>r.size<b.size?r:b,{size:Infinity,name:'—'}); }
 
 /* ============================================================
    Допоміжне
@@ -543,6 +581,7 @@ const fast=()=>reduced||$('fast').checked;
 const sleep=ms=>new Promise(r=>setTimeout(r,fast()?0:ms));
 const noEcc=()=>!!document.getElementById('noEcc')?.checked; // експериментальний режим без корекції
 const cap40=()=>QR.capacity(40,'L',noEcc());
+const MAX_SHOW=12; // скільки кодів малюємо одразу; решта обчислюються, але не малюються
 let runId=0;
 function animate(ms, draw, alive){ return new Promise(res=>{ if (fast()){ draw(1); return res(); }
   const t0=performance.now(); const tick=now=>{ if (!alive()) return res(); const t=Math.min(1,(now-t0)/ms); draw(t); if (t<1) requestAnimationFrame(tick); else res(); }; requestAnimationFrame(tick); }); }
@@ -556,7 +595,7 @@ const perQrMs=n=>Math.max(220,Math.min(1400,4500/n)); // загальний бю
 /* ============================================================
    Крок 1: зображення
    ============================================================ */
-const state={ source:{kind:'default'}, image:null, pre:null, payload:null, qrs:[], stream:null, results:null };
+const state={ source:{kind:'default'}, image:null, pre:null, candidate:null, payload:null, qrs:[], stream:null, results:null, qrCache:new Map() };
 
 function drawTryzub(ctx){
   const g='#FFD500', b='#0057B7';
@@ -603,17 +642,20 @@ async function handleFile(file){ if (!file) return;
   const dims=await new Promise(res=>{ const im=new Image(); im.onload=()=>res({w:im.naturalWidth,h:im.naturalHeight,im}); im.onerror=()=>res(null); im.src=url; });
   state.source={kind:'file',file,bytes,url,dims};
   if ($('fmtSel').value!=='raw' && !dims) $('fmtSel').value='raw'; // не картинка: перемалювати не вийде
-  if ($('fmtSel').value==='raw' && bytes.length>cap40()*40){ $('imgHint').innerHTML='<span class="error">Файл завеликий для показу: понад 40 QR-кодів навіть без стиснення. Оберіть «BMP 128×128» або «PNG 128×128» чи менший файл.</span>'; }
-  else $('imgHint').textContent='Кодуємо байти файлу як є.';
+  const n=Math.max(1,Math.ceil(bytes.length/cap40()));
+  $('imgHint').textContent=$('fmtSel').value==='raw'
+    ? 'Кодуємо байти файлу як є: '+fmtInt(bytes.length)+' байт, це до '+fmtInt(n)+' QR-кодів версії 40 без стиснення. Кодування йде паралельно у '+(pool.size||1)+' потоках; малюємо лише перші '+MAX_SHOW+' кодів.'+(bytes.length>3*1024*1024?' Великий файл: обчислення можуть зайняти кілька хвилин.':'')
+    : 'Картинку перемальовано у 128×128.';
   runPipeline(1);
 }
 
 /* ============================================================
-   Крок 2: стискаємо файл, шукаємо кандидата
+   Крок 2: стискаємо файл, шукаємо кандидата (усі алгоритми паралельно)
    ============================================================ */
 async function step2(alive){
-  openStep(2); const img=state.image.bytes; const chart=$('preChart'); chart.innerHTML=''; $('preState').innerHTML='<span class="spin"></span> рахуємо…';
-  const rows=[]; for (const a of ALGOS){ const r={algo:a}; try { r.bytes=a.run?await a.run(img):null; r.size=r.bytes?r.bytes.length:await algoSize(a,img); } catch(e){ r.size=null; r.err='не підтримується'; } rows.push(r); if (!alive()) return; }
+  openStep(2); const img=state.image.bytes; const chart=$('preChart'); chart.innerHTML=''; $('preState').innerHTML='<span class="spin"></span> рахуємо '+ALGOS.length+' алгоритмів паралельно…';
+  const rows=await Promise.all(ALGOS.map(async a=>{ const r={algo:a}; try { const res=await a.run(img); r.bytes=res instanceof Uint8Array?res:null; r.size=r.bytes?r.bytes.length:res; } catch(e){ r.size=null; r.err=e.message==='скасовано'?e.message:'не підтримується'; } return r; }));
+  if (!alive()) return;
   const usable=rows.filter(r=>r.bytes);
   const sel=$('algoSel').value; let chosen=null;
   if (sel==='auto'){ chosen=usable.reduce((b,r)=>r.size<b.size?r:b,usable[0]); if (!chosen||chosen.size>=img.length) chosen=null; }
@@ -636,16 +678,17 @@ async function step2(alive){
 }
 
 /* ============================================================
-   QR-кодування з кешем і зчитування потоку
+   QR-кодування у воркерах з кешем і зчитування потоку
    ============================================================ */
 function chooseVersion(len){ const sel=$('verSel').value; if (sel!=='auto') return +sel;
   const n=Math.max(1,Math.ceil(len/cap40())); for (let v=1;v<=40;v++) if (QR.capacity(v,'L',noEcc())*n>=len) return v; return 40; }
-state.qrCache=new Map();
-async function encodeAll(bytes, tag, alive){
+async function encodeAll(bytes, tag, alive, onProgress){
   const v=chooseVersion(bytes.length), key=tag+':'+bytes.length+':'+v+':'+(noEcc()?'noecc':'std'); if (state.qrCache.has(key)) return state.qrCache.get(key);
-  const cap=QR.capacity(v,'L',noEcc()), n=Math.max(1,Math.ceil(bytes.length/cap)), qrs=[];
-  for (let i=0;i<n;i++){ const q=QR.encode(bytes.subarray(i*cap,Math.min((i+1)*cap,bytes.length)),v,'L',noEcc()); q.index=i; q.scale=n>6?2:4; qrs.push(q); if (!alive()) return null; if (i%2===1) await sleep(0); }
-  state.qrCache.set(key,qrs); return qrs;
+  const cap=QR.capacity(v,'L',noEcc()), n=Math.max(1,Math.ceil(bytes.length/cap)); let done=0;
+  const tasks=[]; for (let i=0;i<n;i++){ const chunk=bytes.slice(i*cap,Math.min((i+1)*cap,bytes.length));
+    tasks.push(pool.run('encode',{bytes:chunk,v,ecl:'L',noEcc:noEcc()},[chunk.buffer]).then(q=>{ done++; if (onProgress) onProgress(done,n); q.index=i; q.scale=n>6?2:4; q.maskFn=QR.MASKS[q.mask]; return q; })); }
+  let qrs; try { qrs=await Promise.all(tasks); } catch(e){ if (!alive()) return null; throw e; }
+  if (!alive()) return null; state.qrCache.set(key,qrs); return qrs;
 }
 const MODE_NAME={all:'усі модулі даних',noecc:'без кодів корекції',payload:'лише корисні байти'};
 function streamSpec(q,mode){ const hdr=4+(q.version<10?8:16);
@@ -653,32 +696,31 @@ function streamSpec(q,mode){ const hdr=4+(q.version<10?8:16);
   if (mode==='noecc') return {start:0,len:q.dataCodewords*8};
   return {start:hdr,len:q.payloadBytes*8}; }
 // Модулі в логічному порядку кодових слів: блоки QR розміщені впереміш, тож зчитуємо їх так, як сканер після деінтерлівінгу.
-function logicalOrder(q){ if (q.logical) return q.logical; const L=new Array(q.order.length);
+function logicalOrder(q){ if (q.logical) return q.logical; const L=new Int32Array(q.order.length);
   for (let k=0;k<q.totalCodewords;k++){ const lg=q.cwMap[k]; for (let b=0;b<8;b++) L[lg*8+b]=q.order[k*8+b]; }
   for (let i=q.totalCodewords*8;i<q.order.length;i++) L[i]=q.order[i]; q.logical=L; return L; }
 function buildStreamFor(qrs,{unmask,mode}){ if (mode==='payload') unmask=true; const specs=qrs.map(q=>streamSpec(q,mode)); const total=specs.reduce((a,s)=>a+s.len,0);
   const bits=new Uint8Array(total); let p=0;
-  qrs.forEach((q,i)=>{ const {start,len}=specs[i], S=q.size, L=logicalOrder(q); for (let k=0;k<len;k++){ const idx=L[start+k]; const x=idx%S, y=(idx-x)/S; let b=q.modules[idx]; if (unmask&&q.maskFn(x,y)) b^=1; bits[p++]=b; } });
+  qrs.forEach((q,i)=>{ const {start,len}=specs[i], S=q.size, L=logicalOrder(q), f=q.maskFn; for (let k=0;k<len;k++){ const idx=L[start+k]; const x=idx%S, y=(idx-x)/S; let b=q.modules[idx]; if (unmask&&f(x,y)) b^=1; bits[p++]=b; } });
   const packed=new Uint8Array(Math.ceil(total/8)); for (let i=0;i<total;i++) if (bits[i]) packed[i>>>3]|=128>>>(i&7);
   return {bits,packed,specs,mode,unmask}; }
-async function bestCompressed(bytes){ let best=Infinity,name='—'; for (const a of ALGOS){ try { const s=await algoSize(a,bytes); if (s<best){ best=s; name=a.name; } } catch(e){} } return {size:best,name}; }
 
 /* ============================================================
    Крок 3: оцінюємо стратегії A / B / C
    ============================================================ */
 const STRAT={ A:{name:'A: файл → QR → стиснення',short:'A',steps:2}, B:{name:'B: файл → стиснення → QR',short:'B',steps:2}, C:{name:'C: файл → стиснення → QR → стиснення',short:'C',steps:3} };
 async function step3(alive){
-  openStep(3); $('evalState').innerHTML='<span class="spin"></span> кодуємо й стискаємо всі варіанти…'; const tb=$('evalTable').querySelector('tbody'); tb.innerHTML=''; $('evalChart').innerHTML='';
+  openStep(3); const st=$('evalState'); st.innerHTML='<span class="spin"></span> кодуємо…'; const tb=$('evalTable').querySelector('tbody'); tb.innerHTML=''; $('evalChart').innerHTML='';
   const raw=state.image.bytes, cand=state.candidate.bytes;
-  const qrsRaw=await encodeAll(raw,'raw',alive); if (!qrsRaw) return;
-  const qrsCand=state.candidate.compressed?await encodeAll(cand,'cand',alive):qrsRaw; if (!qrsCand) return;
-  const ev={A:{qrs:qrsRaw.length,sizes:{}},B:{qrs:qrsCand.length,sizes:{}},C:{qrs:qrsCand.length,sizes:{}}};
-  for (const mode of ['all','noecc','payload']){
-    const sA=buildStreamFor(qrsRaw,{unmask:true,mode}).packed, sB=buildStreamFor(qrsCand,{unmask:true,mode}).packed;
-    const bA=await bestCompressed(sA); ev.A.sizes[mode]={size:bA.size,name:bA.name,raw:sA.length};
-    ev.B.sizes[mode]={size:sB.length,name:'без стиснення',raw:sB.length};
-    const bC=await bestCompressed(sB); ev.C.sizes[mode]={size:bC.size,name:bC.name,raw:sB.length};
-    if (!alive()) return; }
+  const prog=(label)=>(d,n)=>{ st.innerHTML='<span class="spin"></span> '+label+': '+d+' з '+n+' кодів у '+(pool.size||1)+' потоках…'; };
+  const [qrsRaw, qrsCand] = await Promise.all([ encodeAll(raw,'raw',alive,prog('кодуємо файл як є')), state.candidate.compressed?encodeAll(cand,'cand',alive,prog('кодуємо кандидата')):null ]);
+  if (!alive()||!qrsRaw) return; const qrsC=qrsCand||qrsRaw;
+  st.innerHTML='<span class="spin"></span> стискаємо потоки всіма алгоритмами паралельно…';
+  const modes=['all','noecc','payload']; const ev={A:{qrs:qrsRaw.length,sizes:{}},B:{qrs:qrsC.length,sizes:{}},C:{qrs:qrsC.length,sizes:{}}};
+  const jobs=modes.map(mode=>{ const sA=buildStreamFor(qrsRaw,{unmask:true,mode}).packed, sB=buildStreamFor(qrsC,{unmask:true,mode}).packed; ev.B.sizes[mode]={size:sB.length,name:'без стиснення',raw:sB.length};
+    return Promise.all([bestCompressed(sA),bestCompressed(sB)]).then(([bA,bC])=>{ ev.A.sizes[mode]={size:bA.size,name:bA.name,raw:sA.length}; ev.C.sizes[mode]={size:bC.size,name:bC.name,raw:sB.length}; }); });
+  try { await Promise.all(jobs); } catch(e){ if (!alive()) return; throw e; }
+  if (!alive()) return;
   // вибір
   const sSel=$('stratSel').value, mSel=$('modeSel').value; const order=['B','A','C'];
   let best=null;
@@ -687,14 +729,10 @@ async function step3(alive){
     if (!best || c.size<best.size || (c.size===best.size&&(c.qrs<best.qrs||(c.qrs===best.qrs&&c.steps<best.steps)))) best=c; }
   state.eval=ev; state.strategy=best.s; state.mode=best.m;
   state.payload=(best.s==='A')?{bytes:raw,name:'без стиснення',compressed:false}:{bytes:cand,name:state.candidate.name,compressed:state.candidate.compressed};
-  state.qrsPlanned=(best.s==='A')?qrsRaw:qrsCand;
-  $('evalState').textContent='';
-  // таблиця
-  const minAll=Math.min(...['A','B','C'].flatMap(s=>['all','noecc','payload'].map(m=>ev[s].sizes[m].size)));
+  st.textContent='';
   for (const s of ['A','B','C']){ const tr=document.createElement('tr'); if (s===best.s) tr.style.background='var(--ok-soft)';
     tr.innerHTML='<td>'+STRAT[s].name+'</td><td>'+ev[s].qrs+'</td>'+['all','noecc','payload'].map(m=>{ const c=ev[s].sizes[m]; const isBest=(s===best.s&&m===best.m); return '<td'+(isBest?' class="best"':'')+' title="'+c.name+'">'+fmtInt(c.size)+'</td>'; }).join('');
     tb.appendChild(tr); }
-  // діаграма для обраного вмісту потоку
   const chart=$('evalChart'); const vals=['A','B','C'].map(s=>ev[s].sizes[best.m].size); const maxV=Math.max(raw.length,...vals);
   const fills=[]; const mk=(lbl,sub,val,cls,hi)=>{ const d=document.createElement('div'); d.className='bar-row'+(hi?' chosen':'');
     d.innerHTML='<div class="lbl">'+lbl+'<small>'+sub+'</small></div><div class="track"><div class="fill '+cls+'" style="width:0"></div></div><div class="val"><b>'+fmtInt(val)+'</b> Б</div>'; d.title=lbl+': '+fmtInt(val)+' байт'; chart.appendChild(d); fills.push([d.querySelector('.fill'),val]); };
@@ -713,7 +751,7 @@ async function step3(alive){
 }
 
 /* ============================================================
-   Крок 4: QR-коди
+   Крок 4: QR-коди (малюємо перші MAX_SHOW, решту за кнопкою)
    ============================================================ */
 function makeLayers(q){ // шари 1 px на модуль: дані, службові (звичайні), службові (кольорові), прочитані
   const S=q.size, dark=hexToRgb(css('--qr-dark')), light=[255,255,255];
@@ -728,7 +766,7 @@ function makeLayers(q){ // шари 1 px на модуль: дані, служб
   q.layers={dataC,funcC,colC,readC};
 }
 function qrCard(q, i, grid){ const card=document.createElement('div'); card.className='qr-card'+(q.noEcc?' nonstd':''); const cv=document.createElement('canvas'); cv.width=cv.height=q.size*q.scale; cv.style.animationDelay=(Math.min(i,12)*60)+'ms';
-  const cap=document.createElement('div'); cap.className='cap'; card.append(cv,cap); grid.appendChild(card); const ctx=cv.getContext('2d'); ctx.imageSmoothingEnabled=false; return {card,cv,ctx,cap}; }
+  const cap=document.createElement('div'); cap.className='cap'; card.append(cv,cap); grid.appendChild(card); const ctx=cv.getContext('2d'); ctx.imageSmoothingEnabled=false; return {card,cv,ctx,cap,q,i}; }
 function paint(ctx, q, {dataFrac=1, funcMode='plain', funcAlpha=1, readLayer=false}={}){ const S=q.size, s=q.scale; ctx.clearRect(0,0,S*s,S*s); ctx.fillStyle='#fff'; ctx.fillRect(0,0,S*s,S*s);
   ctx.imageSmoothingEnabled=false;
   if (dataFrac>=1) ctx.drawImage(q.layers.dataC,0,0,S*s,S*s);
@@ -737,66 +775,77 @@ function paint(ctx, q, {dataFrac=1, funcMode='plain', funcAlpha=1, readLayer=fal
   if (funcAlpha>0){ ctx.globalAlpha=funcAlpha; ctx.drawImage(funcMode==='color'?q.layers.colC:q.layers.funcC,0,0,S*s,S*s); ctx.globalAlpha=1; }
   if (readLayer){ ctx.drawImage(q.layers.readC,0,0,S*s,S*s); } }
 function gridMode(grid,n){ grid.classList.toggle('many',n>6); }
+// Сітка карток: одразу малюємо лише перші MAX_SHOW кодів; «Показати ще» домальовує решту в кінцевому стані
+function makeCards(grid, qrs, finalPaint){ grid.innerHTML=''; gridMode(grid,qrs.length); const cards=[]; let shown=0;
+  const note=document.createElement('div'); note.className='hint'; note.style.cssText='grid-column:1/-1;display:flex;gap:10px;align-items:center;flex-wrap:wrap';
+  const btn=document.createElement('button'); btn.className='btn ghost small'; btn.type='button';
+  const add=k=>{ const end=Math.min(qrs.length,shown+k); for (;shown<end;shown++){ const q=qrs[shown]; if (!q.layers) makeLayers(q); const c=qrCard(q,shown,grid); cards.push(c); if (finalPaint) finalPaint(c); }
+    grid.appendChild(note); const left=qrs.length-shown; note.innerHTML='';
+    if (left>0){ note.append('Показано '+shown+' з '+qrs.length+' кодів; решта обчислені, але не намальовані.'); btn.textContent='Показати ще '+Math.min(left,MAX_SHOW); note.appendChild(btn); } else note.remove(); };
+  btn.onclick=()=>add(MAX_SHOW); add(MAX_SHOW); return cards; }
 
 async function step4(alive){
-  openStep(4); const data=state.payload.bytes; const grid=$('qrGrid'); grid.innerHTML='';
-  const qrs=await encodeAll(data,state.strategy==='A'?'raw':'cand',alive); if (!qrs) return;
-  const v=qrs[0].version, cap=qrs[0].capacity, n=qrs.length; gridMode(grid,n);
-  qrs.forEach(q=>{ if (!q.layers) makeLayers(q); });
+  openStep(4); const data=state.payload.bytes; const grid=$('qrGrid'); grid.innerHTML=''; const hint=$('capHint');
+  const qrs=await encodeAll(data,state.strategy==='A'?'raw':'cand',alive,(d,n)=>{ hint.textContent='Кодуємо '+d+' з '+n+' у '+(pool.size||1)+' потоках…'; }); if (!qrs) return;
+  const v=qrs[0].version, cap=qrs[0].capacity, n=qrs.length;
   state.qrs=qrs;
-  $('capHint').textContent='Версія '+v+' (L): '+fmtInt(cap)+' байт на код, '+(v*4+17)+'×'+(v*4+17)+' модулів';
+  hint.textContent='Версія '+v+' (L): '+fmtInt(cap)+' байт на код, '+(v*4+17)+'×'+(v*4+17)+' модулів';
   $('qrVer').textContent='версія '+v+', рівень L, '+state.payload.name;
   countUp($('qrCount'),n,500); countUp($('qrCap'),cap,600); countUp($('qrModules'),n*(v*4+17)**2,800); $('qrSide').textContent=n+' × '+(v*4+17)+'×'+(v*4+17);
   $('qrFill').dataset.v=0; await animate(600,t=>{ $('qrFill').textContent=(data.length/(n*cap)*100*t).toFixed(1).replace('.',',')+' %'; },alive);
-  const cards=qrs.map((q,i)=>{ const c=qrCard(q,i,grid); c.cap.innerHTML='<b>QR '+(i+1)+' з '+n+'</b> · '+fmtInt(q.payloadBytes)+' байт · '+fmtInt(q.dataCodewords)+' кодових слів'+(q.noEcc?' · <span style="color:var(--bad)">без корекції, нестандартний</span>':' + '+fmtInt(q.totalCodewords-q.dataCodewords)+' EC (корекція)'); return c; });
-  const ms=perQrMs(n);
-  for (let i=0;i<qrs.length;i++){ const q=qrs[i], c=cards[i]; paint(c.ctx,q,{dataFrac:0}); await sleep(Math.min(120,ms/4));
-    await animate(ms, t=>paint(c.ctx,q,{dataFrac:t}), alive); if (!alive()) return; }
-  setNav(4,'done');
+  const capText=(q,i)=>'<b>QR '+(i+1)+' з '+n+'</b> · '+fmtInt(q.payloadBytes)+' байт · '+fmtInt(q.dataCodewords)+' кодових слів'+(q.noEcc?' · <span style="color:var(--bad)">без корекції, нестандартний</span>':' + '+fmtInt(q.totalCodewords-q.dataCodewords)+' EC (корекція)');
+  let animating=true;
+  const cards=makeCards(grid,qrs,c=>{ c.cap.innerHTML=capText(c.q,c.i); paint(c.ctx,c.q,animating?{dataFrac:0}:{}); });
+  const ms=perQrMs(cards.length);
+  for (const c of cards){ await sleep(Math.min(120,ms/4)); await animate(ms, t=>paint(c.ctx,c.q,{dataFrac:t}), alive); if (!alive()) return; }
+  animating=false; setNav(4,'done');
 }
 
 /* ============================================================
    Крок 5: прибираємо службові шаблони
    ============================================================ */
 async function step5(alive){
-  openStep(5); const grid=$('stripGrid'); grid.innerHTML=''; const qrs=state.qrs; gridMode(grid,qrs.length);
+  openStep(5); const grid=$('stripGrid'); const qrs=state.qrs;
   const all=qrs.reduce((a,q)=>a+q.size*q.size,0), func=qrs.reduce((a,q)=>a+q.isFunc.reduce((x,y)=>x+y,0),0), data=all-func;
-  const cards=qrs.map((q,i)=>qrCard(q,i,grid));
-  cards.forEach((c,i)=>{ paint(c.ctx,qrs[i],{}); c.cap.innerHTML='<b>QR '+(i+1)+'</b> · службових модулів: '+fmtInt(qrs[i].isFunc.reduce((x,y)=>x+y,0)); });
+  let phase=0; // 0 — повний код, 1 — кольорові службові, 2 — лише дані
+  const cards=makeCards(grid,qrs,c=>{ if (phase<2){ paint(c.ctx,c.q,{}); c.cap.innerHTML='<b>QR '+(c.i+1)+'</b> · службових модулів: '+fmtInt(c.q.isFunc.reduce((x,y)=>x+y,0)); } else { paint(c.ctx,c.q,{funcAlpha:0}); c.cap.innerHTML='<b>QR '+(c.i+1)+'</b> · лишилось '+fmtInt(c.q.order.length)+' модулів даних'; } });
   await sleep(300);
-  await animate(700, t=>cards.forEach((c,i)=>{ paint(c.ctx,qrs[i],{}); c.ctx.globalAlpha=t; c.ctx.drawImage(qrs[i].layers.colC,0,0,qrs[i].size*qrs[i].scale,qrs[i].size*qrs[i].scale); c.ctx.globalAlpha=1; }), alive); if (!alive()) return;
-  countUp($('stAll'),all,700,fmtInt,alive); countUp($('stFunc'),func,700,fmtInt,alive); $('stFuncPct').textContent=pct(func,all)+' площі';
+  await animate(700, t=>cards.forEach(c=>{ paint(c.ctx,c.q,{}); c.ctx.globalAlpha=t; c.ctx.drawImage(c.q.layers.colC,0,0,c.q.size*c.q.scale,c.q.size*c.q.scale); c.ctx.globalAlpha=1; }), alive); if (!alive()) return;
+  phase=1; countUp($('stAll'),all,700,fmtInt,alive); countUp($('stFunc'),func,700,fmtInt,alive); $('stFuncPct').textContent=pct(func,all)+' площі';
   await sleep(700);
-  await animate(1100, t=>cards.forEach((c,i)=>paint(c.ctx,qrs[i],{funcMode:'color',funcAlpha:1-t})), alive); if (!alive()) return;
-  countUp($('stData'),data,700,fmtInt,alive); const cw=qrs.reduce((a,q)=>a+q.totalCodewords*8,0); $('stDataSplit').textContent=fmtInt(cw)+' бітів кодових слів + '+fmtInt(data-cw)+' залишкових';
-  cards.forEach((c,i)=>{ c.cap.innerHTML='<b>QR '+(i+1)+'</b> · лишилось '+fmtInt(qrs[i].order.length)+' модулів даних'; });
+  await animate(1100, t=>cards.forEach(c=>paint(c.ctx,c.q,{funcMode:'color',funcAlpha:1-t})), alive); if (!alive()) return;
+  phase=2; countUp($('stData'),data,700,fmtInt,alive); const cw=qrs.reduce((a,q)=>a+q.totalCodewords*8,0); $('stDataSplit').textContent=fmtInt(cw)+' бітів кодових слів + '+fmtInt(data-cw)+' залишкових';
+  cards.forEach(c=>{ c.cap.innerHTML='<b>QR '+(c.i+1)+'</b> · лишилось '+fmtInt(c.q.order.length)+' модулів даних'; });
   setNav(5,'done');
 }
 
 /* ============================================================
    Крок 6: потік бітів
    ============================================================ */
+function fillReadLayer(q, spec, readCol, skipCol, upto){ const S=q.size, L=logicalOrder(q); const rctx=q.layers.readC.getContext('2d'); const rI=rctx.createImageData(S,S);
+  for (let k=0;k<spec.start;k++) rI.data.set([skipCol[0],skipCol[1],skipCol[2],70],L[k]*4);
+  for (let k=spec.start+spec.len;k<L.length;k++) rI.data.set([skipCol[0],skipCol[1],skipCol[2],70],L[k]*4);
+  for (let k=0;k<upto;k++) rI.data.set([readCol[0],readCol[1],readCol[2],110],L[spec.start+k]*4);
+  rctx.putImageData(rI,0,0); return rI; }
 async function step6(alive){
   openStep(6); const qrs=state.qrs; const mode=state.mode; if (mode==='payload') $('unmask').checked=true; $('unmask').disabled=(mode==='payload');
   $('modeHint').textContent='Вміст: '+MODE_NAME[mode]+(mode==='payload'?' (маска знята обов’язково)':'');
   const s=buildStreamFor(qrs,{unmask:$('unmask').checked,mode});
   let text=''; const chunk=8192; for (let i=0;i<s.bits.length;i+=chunk) text+=Array.from(s.bits.subarray(i,Math.min(s.bits.length,i+chunk))).join('');
   s.textStr=text; s.text=new TextEncoder().encode(text); state.stream=s;
-  const grid=$('readGrid'); grid.innerHTML=''; gridMode(grid,qrs.length); const tick=$('ticker'); tick.textContent='';
-  const readCol=hexToRgb(css('--read')), skipCol=hexToRgb(css('--bad')); const cards=qrs.map((q,i)=>qrCard(q,i,grid));
-  cards.forEach((c,i)=>{ paint(c.ctx,qrs[i],{funcAlpha:0}); c.cap.innerHTML='<b>QR '+(i+1)+'</b> · очікує'; });
-  let offset=0; const ms=perQrMs(qrs.length);
-  for (let i=0;i<qrs.length;i++){ const q=qrs[i], c=cards[i], {start,len}=s.specs[i], S=q.size, sc=q.scale, L=logicalOrder(q); const rctx=q.layers.readC.getContext('2d'); rctx.clearRect(0,0,S,S);
-    const rI=rctx.createImageData(S,S); let done=0; const base=offset;
-    // пропущені модулі (заголовок попереду, корекція та залишок позаду) підсвічуємо блідо-червоним
-    for (let k=0;k<start;k++) rI.data.set([skipCol[0],skipCol[1],skipCol[2],70],L[k]*4);
-    for (let k=start+len;k<L.length;k++) rI.data.set([skipCol[0],skipCol[1],skipCol[2],70],L[k]*4);
-    await animate(ms, t=>{ const n=Math.floor(len*t); for (;done<n;done++){ const idx=L[start+done]; rI.data.set([readCol[0],readCol[1],readCol[2],110],idx*4); }
+  const grid=$('readGrid'); const tick=$('ticker'); tick.textContent='';
+  const readCol=hexToRgb(css('--read')), skipCol=hexToRgb(css('--bad'));
+  let animating=true;
+  const cards=makeCards(grid,qrs,c=>{ const sp=s.specs[c.i]; if (animating){ paint(c.ctx,c.q,{funcAlpha:0}); c.cap.innerHTML='<b>QR '+(c.i+1)+'</b> · очікує'; } else { fillReadLayer(c.q,sp,readCol,skipCol,sp.len); paint(c.ctx,c.q,{funcAlpha:0,readLayer:true}); c.cap.innerHTML='<b>QR '+(c.i+1)+'</b> · '+fmtInt(sp.len)+' з '+fmtInt(sp.len)+' бітів'; } });
+  const ms=perQrMs(cards.length); const offsets=[]; let off=0; s.specs.forEach(sp=>{ offsets.push(off); off+=sp.len; });
+  for (const c of cards){ const q=c.q, sp=s.specs[c.i], S=q.size, sc=q.scale, L=logicalOrder(q), rctx=q.layers.readC.getContext('2d');
+    const rI=fillReadLayer(q,sp,readCol,skipCol,0); let done=0; const base=offsets[c.i];
+    await animate(ms, t=>{ const n=Math.floor(sp.len*t); for (;done<n;done++){ rI.data.set([readCol[0],readCol[1],readCol[2],110],L[sp.start+done]*4); }
       rctx.putImageData(rI,0,0); paint(c.ctx,q,{funcAlpha:0,readLayer:true});
-      if (n<len && n>0){ const idx=L[start+n]; const x=idx%S,y=(idx-x)/S; c.ctx.fillStyle='rgb('+readCol.join(',')+')'; c.ctx.fillRect(x*sc-sc/2,y*sc-sc/2,sc*2,sc*2); }
+      if (n<sp.len && n>0){ const idx=L[sp.start+n]; const x=idx%S,y=(idx-x)/S; c.ctx.fillStyle='rgb('+readCol.join(',')+')'; c.ctx.fillRect(x*sc-sc/2,y*sc-sc/2,sc*2,sc*2); }
       const end=base+n, st=Math.max(0,end-600); tick.innerHTML=s.textStr.slice(st,end)+'<span class="cur">'+(end<s.bits.length?s.textStr[end]:'')+'</span>';
-      c.cap.innerHTML='<b>QR '+(i+1)+'</b> · '+fmtInt(n)+' з '+fmtInt(len)+' бітів'; }, alive); if (!alive()) return;
-    offset+=len; }
+      c.cap.innerHTML='<b>QR '+(c.i+1)+'</b> · '+fmtInt(n)+' з '+fmtInt(sp.len)+' бітів'; }, alive); if (!alive()) return; }
+  animating=false;
   tick.innerHTML=s.textStr.slice(Math.max(0,s.bits.length-600));
   const skipped=qrs.reduce((a,q)=>a+q.order.length,0)-s.bits.length;
   countUp($('bits'),s.bits.length,700,fmtInt,alive); $('bitsPerQr').textContent=qrs.length<=6?s.specs.map(x=>fmtInt(x.len)).join(' + '):qrs.length+' кодів';
@@ -812,34 +861,36 @@ async function step6(alive){
   blockDictionary(qrs);
   setNav(6,'done');
 }
-// Оцінка ідеї «словник блоків N×N»: частоти блоків у матриці даних, ентропія, вартість словника
-function blockDictionary(qrs){
-  const tb=$('dictTable').querySelector('tbody'); tb.innerHTML=''; const unmask=$('unmask').checked; const packedLen=state.stream.packed.length;
+// Оцінка ідеї «словник блоків N×N»: частоти блоків у матриці даних, ентропія, вартість словника (за першими 24 кодами)
+function blockDictionary(allQrs){
+  const qrs=allQrs.slice(0,24); const tb=$('dictTable').querySelector('tbody'); tb.innerHTML=''; const unmask=$('unmask').checked;
+  const sub=buildStreamFor(qrs,{unmask:true,mode:state.mode}); const packedLen=sub.packed.length;
   const rows=[];
   for (const N of [2,4,8,16]){ const freq=new Map(); let blocks=0;
-    for (const q of qrs){ const S=q.size;
+    for (const q of qrs){ const S=q.size, f=q.maskFn;
       for (let by=0;by+N<=S;by+=N) for (let bx=0;bx+N<=S;bx+=N){ let key='';
-        for (let y=by;y<by+N;y++) for (let x=bx;x<bx+N;x++){ const idx=y*S+x; let b=q.isFunc[idx]?0:q.modules[idx]; if (!q.isFunc[idx]&&unmask&&q.maskFn(x,y)) b^=1; key+=b; }
+        for (let y=by;y<by+N;y++) for (let x=bx;x<bx+N;x++){ const idx=y*S+x; let b=q.isFunc[idx]?0:q.modules[idx]; if (!q.isFunc[idx]&&unmask&&f(x,y)) b^=1; key+=b; }
         freq.set(key,(freq.get(key)||0)+1); blocks++; } }
-    const U=freq.size; let H=0; for (const f of freq.values()){ const p=f/blocks; H-=p*Math.log2(p); }
+    const U=freq.size; let H=0; for (const fq of freq.values()){ const p=fq/blocks; H-=p*Math.log2(p); }
     const fixedBits=Math.max(1,Math.ceil(Math.log2(U))); const letter=Math.ceil(blocks*fixedBits/8), entropy=Math.ceil(blocks*H/8), dict=Math.ceil(U*N*N/8);
     rows.push({N,blocks,U,H,fixedBits,letter,entropy,dict});
     const tr=document.createElement('tr'); tr.innerHTML='<td>'+N+'×'+N+'</td><td>'+fmtInt(blocks)+'</td><td>'+fmtInt(U)+' із '+(N*N<=16?fmtInt(2**(N*N)):'2^'+N*N)+' можливих</td><td>'+H.toFixed(2).replace('.',',')+' із '+N*N+'</td><td>'+fmtInt(letter)+' Б</td><td>'+fmtInt(entropy)+' Б</td><td>'+fmtInt(entropy+dict)+' Б</td>'; tb.appendChild(tr); }
   const best=rows.reduce((a,r)=>(r.entropy+r.dict)<(a.entropy+a.dict)?r:a,rows[0]);
-  $('dictNote').innerHTML='Для порівняння: потік, просто упакований по 8 бітів у байт, займає <b>'+fmtInt(packedLen)+' Б</b>. Найкращий словник ('+best.N+'×'+best.N+') дав би '+fmtInt(best.entropy+best.dict)+' Б. '+
+  $('dictNote').innerHTML=(allQrs.length>qrs.length?'Оцінка за першими '+qrs.length+' з '+allQrs.length+' кодів. ':'')+'Для порівняння: цей самий потік, просто упакований по 8 бітів у байт, займає <b>'+fmtInt(packedLen)+' Б</b>. Найкращий словник ('+best.N+'×'+best.N+') дав би '+fmtInt(best.entropy+best.dict)+' Б. '+
     (best.entropy+best.dict>=packedLen*0.98?'Виграшу немає: після стиснення біти майже випадкові, кожен блок трапляється приблизно однаково часто, а великі блоки майже всі унікальні, тож словник коштує дорожче за самі дані. Послідовність на кшталт 1110101010 «як байт» — це і є звичайне упакування 8 бітів у байт, воно вже зроблено.':'Невеликий виграш є, бо дані в кодах не стиснені й блоки повторюються; але deflate на кроці 7 знаходить ці ж повтори краще, бо шукає їх у вікні 32 КіБ, а не лише в сітці N×N.');
 }
 
 /* ============================================================
-   Крок 7: повторне стиснення потоку
+   Крок 7: повторне стиснення потоку (усі алгоритми паралельно)
    ============================================================ */
 async function step7(alive){
-  openStep(7); const chart=$('chart'); chart.innerHTML=''; const tb=$('zipTable').querySelector('tbody'); tb.innerHTML=''; $('zipState').innerHTML='<span class="spin"></span> рахуємо…';
+  openStep(7); const chart=$('chart'); chart.innerHTML=''; const tb=$('zipTable').querySelector('tbody'); tb.innerHTML=''; $('zipState').innerHTML='<span class="spin"></span> рахуємо паралельно…';
   const st=state.strategy;
   $('zipDesc').textContent=(st==='B'?'У стратегії B цей крок не входить до ланцюжка: показуємо для довідки, що дало б повторне стиснення. ':(st==='A'?'У стратегії A це єдине стиснення: файл поклали в QR як є, і тепер стискаємо потік. ':'У стратегії C це друге стиснення після того, як файл уже стиснули до QR. '))+'Золота риска — розмір даних, покладених у QR.';
-  const s=state.stream, img=state.image.bytes, pay=state.payload.bytes; const res=[];
-  for (const a of ALGOS){ const r={...a}; try { r.packed=await algoSize(a,s.packed); r.text=await algoSize(a,s.text); r.img=await algoSize(a,img); }
-    catch(e){ r.packed=r.text=r.img=null; r.err='не підтримується'; } res.push(r); if (!alive()) return; }
+  const s=state.stream, img=state.image.bytes, pay=state.payload.bytes;
+  const res=await Promise.all(ALGOS.map(async a=>{ const r={...a}; try { const [p,t,i]=await Promise.all([algoSize(a,s.packed),algoSize(a,s.text),algoSize(a,img)]); r.packed=p; r.text=t; r.img=i; }
+    catch(e){ r.packed=r.text=r.img=null; r.err=e.message==='скасовано'?e.message:'не підтримується'; } return r; }));
+  if (!alive()) return;
   state.results=res; $('zipState').textContent='';
   const ok=res.filter(r=>r.packed!=null); const maxV=Math.max(pay.length,s.packed.length,...ok.map(r=>r.packed)); const refPct=pay.length/maxV*100;
   const row=(lbl,sub,val,cls,withMarker)=>{ const d=document.createElement('div'); d.className='bar-row';
@@ -885,13 +936,14 @@ async function step8(alive){
   if (noEcc()) t+='Увімкнено експериментальний режим: коди згенеровано взагалі без кодових слів корекції, тож один код версії 40 вміщує '+fmtInt(cap40())+' байт; це вже не QR за стандартом, і прочитає його лише зчитувач на цій сторінці (крок 6 підтверджує збірку байт у байт). ';
   t+='Платимо за це стійкістю: без корекції будь-який невірно прочитаний модуль зіпсує архів. Загальний висновок: стискати треба один раз і до QR, корекцію з потоку можна викинути, а повторне стиснення після QR або нічого не дає, або додає кілька байтів заголовків архіву.';
   $('verdict').innerHTML=t;
-  setNav(8,'done'); $('runState').textContent='Готово';
+  setNav(8,'done'); $('runState').textContent='Готово'+(pool.size?' · '+pool.size+' воркерів':'');
 }
 
 /* ============================================================
    Оркестрація
    ============================================================ */
 async function runPipeline(from=1){ const id=++runId; const alive=()=>id===runId; $('runState').textContent='Виконуємо…';
+  pool.reset(); // скасовуємо задачі попереднього прогону
   for (let i=Math.max(2,from);i<=8;i++) $('s'+i).classList.remove('on');
   try {
     if (from<=1){ setNav(1,'active'); state.qrCache.clear(); await prepareImage(); await sleep(600); setNav(1,'done'); }
@@ -902,12 +954,12 @@ async function runPipeline(from=1){ const id=++runId; const alive=()=>id===runId
     if (from<=6){ await step6(alive); if (!alive()) return; await sleep(400); }
     if (from<=7){ await step7(alive); if (!alive()) return; await sleep(300); }
     await step8(alive);
-  } catch(e){ console.error(e); $('runState').textContent='Помилка: '+e.message; }
+  } catch(e){ if (!alive()) return; console.error(e); $('runState').textContent='Помилка: '+e.message; }
 }
 (function init(){
   const sel=$('verSel'); sel.innerHTML='<option value="auto">авто (мінімальна, що вміщує)</option>'+Array.from({length:40},(_,i)=>'<option value="'+(40-i)+'">'+(40-i)+' — '+fmtInt(QR.capacity(40-i,'L'))+' Б</option>').join('');
   sel.value='40';
-  const asel=$('algoSel'); ALGOS.filter(a=>a.run).forEach(a=>{ const o=document.createElement('option'); o.value=a.id; o.textContent=a.name; asel.appendChild(o); });
+  const asel=$('algoSel'); ALGOS.filter(a=>!a.sizeOnly).forEach(a=>{ const o=document.createElement('option'); o.value=a.id; o.textContent=a.name; asel.appendChild(o); });
   const none=document.createElement('option'); none.value='none'; none.textContent='без стиснення (як було)'; asel.appendChild(none);
   $('runAll').addEventListener('click',()=>runPipeline(1));
   $('fileInput').addEventListener('change',e=>handleFile(e.target.files[0]));
