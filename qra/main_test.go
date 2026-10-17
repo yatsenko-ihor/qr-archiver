@@ -86,12 +86,42 @@ func TestCommandsRoundTrip(t *testing.T) {
 			t.Fatal(err)
 		}
 		codes := filepath.Join(dir, "codes")
-		if err := cmdRender([]string{"-scale", "2", "-quiet", "3", qra, codes}); err != nil {
+		if err := cmdRender([]string{"-format", "png", "-scale", "2", "-quiet", "3", qra, codes}); err != nil {
 			t.Fatal(err)
 		}
 		files, _ := filepath.Glob(filepath.Join(codes, "code-*.png"))
 		if len(files) == 0 {
 			t.Fatal("render не створив PNG")
+		}
+		// типовий формат bits і text: один файл кожен
+		qrb := filepath.Join(dir, "codes.qrb")
+		if err := cmdRender([]string{qra, qrb}); err != nil {
+			t.Fatal(err)
+		}
+		qrt := filepath.Join(dir, "codes.qrt")
+		if err := cmdRender([]string{"-format", "text", qra, qrt}); err != nil {
+			t.Fatal(err)
+		}
+		for _, src := range []string{qrb, qrt} {
+			out := filepath.Join(dir, filepath.Base(src)+".scanned.qra")
+			if err := cmdScan([]string{out, src}); err != nil {
+				t.Fatalf("scan %s: %v", src, err)
+			}
+			a, _ := os.ReadFile(qra)
+			b, _ := os.ReadFile(out)
+			if !bytes.Equal(a, b) {
+				t.Fatalf("%s: відсканований .qra відрізняється", src)
+			}
+		}
+		// без імені виходу render кладе .qrb поруч із .qra
+		if err := cmdRender([]string{qra}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(filepath.Join(dir, "a.qrb")); err != nil {
+			t.Fatal("render без імені не створив a.qrb")
+		}
+		if err := cmdRender([]string{"-format", "nope", qra}); err == nil {
+			t.Fatal("невідомий формат має давати помилку")
 		}
 		scanned := filepath.Join(dir, "scanned.qra")
 		scanArgs := []string{scanned, codes} // тека, а не перелік файлів
@@ -149,7 +179,7 @@ func TestAnyFileNotJustImages(t *testing.T) {
 		if err := cmdPack([]string{src, qra}); err != nil {
 			t.Fatalf("%s: pack: %v", name, err)
 		}
-		codes := filepath.Join(dir, name+"-codes")
+		codes := filepath.Join(dir, name+".qrb")
 		if err := cmdRender([]string{qra, codes}); err != nil {
 			t.Fatalf("%s: render: %v", name, err)
 		}
@@ -179,6 +209,56 @@ func mustRead(t *testing.T, p string) []byte {
 		t.Fatal(err)
 	}
 	return b
+}
+
+func TestPackQRCheck(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "f.bin")
+	os.WriteFile(src, bytes.Repeat([]byte("qr check "), 2000), 0o644)
+	if err := cmdPack([]string{src, filepath.Join(dir, "a.qra")}); err != nil {
+		t.Fatalf("pack з перевіркою через QR: %v", err)
+	}
+	if err := cmdPack([]string{"-no-qr-check", "-no-ecc", "-v", "12", src, filepath.Join(dir, "b.qra")}); err != nil {
+		t.Fatalf("pack без перевірки: %v", err)
+	}
+	a, _ := os.ReadFile(filepath.Join(dir, "a.qra"))
+	b, _ := os.ReadFile(filepath.Join(dir, "b.qra"))
+	if len(a) != len(b) || a[7] == b[7] {
+		t.Fatal("обидва .qra мають однакову довжину, але різну версію QR у заголовку")
+	}
+}
+
+func TestForEachBatchOrderAndBatching(t *testing.T) {
+	// 100 шматків версії 1 → кілька пакетів; порядок і межі пакетів мають бути правильні
+	data := make([]byte, 17*100)
+	for i := range data {
+		data[i] = byte(i)
+	}
+	var starts []int
+	var all []*Code
+	err := forEachBatch(data, 1, false, func(start int, codes []*Code) error {
+		starts = append(starts, start)
+		all = append(all, codes...)
+		return nil
+	})
+	if err != nil || len(all) != 100 || starts[0] != 0 {
+		t.Fatalf("пакети: %v, кодів %d, %v", starts, len(all), err)
+	}
+	if len(starts) < 2 {
+		t.Fatal("очікував кілька пакетів")
+	}
+	for i, c := range all {
+		p, _, _ := DecodeMatrix(c.Modules, c.Size, false)
+		if !bytes.Equal(p, data[i*17:(i+1)*17]) {
+			t.Fatalf("код %d містить не свій шматок", i)
+		}
+	}
+	// помилка з fn зупиняє обхід
+	calls := 0
+	err = forEachBatch(data, 1, false, func(int, []*Code) error { calls++; return os.ErrInvalid })
+	if err == nil || calls != 1 {
+		t.Fatal("помилка з fn має повертатися одразу")
+	}
 }
 
 func TestNaturalLessAndExpand(t *testing.T) {
@@ -232,10 +312,10 @@ func TestCommandsErrors(t *testing.T) {
 	if err := cmdInfo(nil); err == nil || cmdInfo([]string{junk}) == nil {
 		t.Error("info без аргументів або зі сміттям")
 	}
-	if err := cmdRender([]string{junk}); err == nil {
-		t.Error("render без теки")
+	if err := cmdRender(nil); err == nil {
+		t.Error("render без аргументів")
 	}
-	if err := cmdRender([]string{junk, dir}); err == nil {
+	if err := cmdRender([]string{junk}); err == nil {
 		t.Error("render сміття")
 	}
 	if err := cmdScan([]string{filepath.Join(dir, "o.qra")}); err == nil {
@@ -265,7 +345,7 @@ func TestCommandsErrors(t *testing.T) {
 	qra := filepath.Join(dir, "img.qra")
 	cmdPack([]string{"-v", "10", src, qra})
 	codes := filepath.Join(dir, "codes")
-	cmdRender([]string{qra, codes})
+	cmdRender([]string{"-format", "png", qra, codes})
 	files, _ := filepath.Glob(filepath.Join(codes, "code-*.png"))
 	if len(files) < 2 {
 		t.Fatal("очікував кілька кодів")
