@@ -117,6 +117,7 @@ label.field{display:inline-flex;flex-wrap:wrap;gap:8px;align-items:center;font-s
 @keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
 .qr-card canvas{width:100%;max-width:340px;height:auto;background:#fff;border-radius:6px;image-rendering:pixelated;box-shadow:0 2px 10px rgba(0,0,0,.12)}
 .qr-card .cap{font-size:.82rem;color:var(--muted);text-align:center}
+.qr-card.nonstd canvas{outline:2px dashed var(--bad);outline-offset:-2px}
 .many .qr-card .cap{font-size:.74rem}
 .qr-card .cap b{color:var(--fg);font-weight:600}
 .legend{display:flex;flex-wrap:wrap;gap:8px 14px;font-size:.82rem;color:var(--muted)}
@@ -209,7 +210,7 @@ td.best{color:var(--ok);font-weight:600}
           <div class="stats">
             <div class="stat gold"><span class="k">Розмір файлу</span><span class="v num" id="imgBytes">—</span><span class="s" id="imgBytesKb"></span></div>
             <div class="stat"><span class="k">Формат</span><span class="v" id="imgFormat">BMP</span><span class="s" id="imgDims">128 × 128 px</span></div>
-            <div class="stat"><span class="k">QR-кодів без стиснення</span><span class="v num" id="imgQrRaw">—</span><span class="s">версія 40, по 2 953 байти</span></div>
+            <div class="stat"><span class="k">QR-кодів без стиснення</span><span class="v num" id="imgQrRaw">—</span><span class="s" id="imgQrRawS">версія 40, по 2 953 байти</span></div>
           </div>
           <div class="controls">
             <label class="field">Формат <select id="fmtSel">
@@ -279,6 +280,10 @@ td.best{color:var(--ok);font-weight:600}
         <span class="hint" id="capHint"></span>
         <button class="btn small" id="redoQr">Згенерувати знову</button>
       </div>
+      <div class="controls">
+        <label class="toggle"><input type="checkbox" id="noEcc"> Експеримент: без корекції. Місце кодових слів корекції теж заповнюємо даними</label>
+        <span class="hint" id="noEccHint">Версія 40 вмістить 3 703 байти замість 2 953, але такий код прочитає лише зчитувач на цій сторінці, звичайний сканер покаже помилку.</span>
+      </div>
       <div class="stats">
         <div class="stat accent"><span class="k">QR-кодів</span><span class="v num" id="qrCount">—</span><span class="s" id="qrVer"></span></div>
         <div class="stat"><span class="k">Місткість одного</span><span class="v num" id="qrCap">—</span><span class="s">байтів корисних даних</span></div>
@@ -323,8 +328,14 @@ td.best{color:var(--ok);font-weight:600}
         <div class="stat"><span class="k">Упаковано в байти</span><span class="v num" id="packed">—</span><span class="s">по 8 бітів у байт</span></div>
         <div class="stat"><span class="k">Пропущено бітів</span><span class="v num" id="skipped">—</span><span class="s" id="skippedS"></span></div>
         <div class="stat"><span class="k">Як текст «0101»</span><span class="v num" id="txt">—</span><span class="s">по символу на біт</span></div>
+        <div class="stat"><span class="k">Збірка нашим зчитувачем</span><span class="v" id="assemble">—</span><span class="s" id="assembleS"></span></div>
       </div>
       <details><summary>Перші 2048 бітів потоку</summary><pre id="bitsDump"></pre></details>
+      <details><summary>Перевірка ідеї: словник однакових блоків N×N</summary>
+        <p class="hint" style="margin-top:8px">Ріжемо матрицю модулів даних (службові шаблони прибрані, маска знята) на блоки N×N і рахуємо, скільки з них справді повторюються. «Літера на блок» — кожен унікальний блок замінити символом фіксованої ширини; «ентропійний код» — найкраще, що може дати будь-який словник чи Хаффман по блоках. До обох додано вартість самого словника.</p>
+        <div class="tbl"><table id="dictTable"><thead><tr><th>Блок</th><th>Блоків</th><th>Унікальних</th><th>Біт на блок</th><th>Літера на блок</th><th>Ентропійний код</th><th>Разом зі словником</th></tr></thead><tbody></tbody></table></div>
+        <p class="hint" id="dictNote"></p>
+      </details>
     </section>
 
     <!-- 7 -->
@@ -375,8 +386,9 @@ const QR = (() => {
     if (v>=2){ const na = Math.floor(v/7)+2; r -= (25*na-10)*na-55; if (v>=7) r -= 36; }
     return r;
   }
-  const numDataCodewords = (v,e) => Math.floor(numRawDataModules(v)/8) - ECC_CW[e.ord][v]*NUM_BLOCKS[e.ord][v];
-  const capacity = (v,eName) => { const e=ECL[eName]; return Math.floor((numDataCodewords(v,e)*8 - 4 - (v<10?8:16))/8); };
+  // noEcc — експериментальний режим: кодові слова корекції не пишуться, їхнє місце теж займають дані (сканер такий код не прочитає)
+  const numDataCodewords = (v,e,noEcc) => Math.floor(numRawDataModules(v)/8) - (noEcc?0:ECC_CW[e.ord][v]*NUM_BLOCKS[e.ord][v]);
+  const capacity = (v,eName,noEcc=false) => { const e=ECL[eName]; return Math.floor((numDataCodewords(v,e,noEcc)*8 - 4 - (v<10?8:16))/8); };
 
   function gfMul(x,y){ let z=0; for (let i=7;i>=0;i--){ z=(z<<1)^((z>>>7)*0x11D); z^=((y>>>i)&1)*x; } return z&0xFF; }
   function rsDivisor(deg){ const r=new Array(deg).fill(0); r[deg-1]=1; let root=1;
@@ -406,16 +418,16 @@ const QR = (() => {
   // типи службових модулів
   const FT = { NONE:0, FINDER:1, SEP:2, TIMING:3, ALIGN:4, FORMAT:5, VERSION:6, DARK:7 };
 
-  function encode(bytes, v, eName){
+  function encode(bytes, v, eName, noEcc=false){
     const e=ECL[eName], size=v*4+17;
     const bb=[]; const push=(val,len)=>{ for (let i=len-1;i>=0;i--) bb.push((val>>>i)&1); };
     push(4,4); push(bytes.length, v<10?8:16); for (const b of bytes) push(b,8);
-    const dataCap=numDataCodewords(v,e)*8;
+    const dataCap=numDataCodewords(v,e,noEcc)*8;
     if (bb.length>dataCap) throw new Error('Дані не вміщуються у версію '+v);
     push(0,Math.min(4,dataCap-bb.length)); push(0,(8-bb.length%8)%8);
     for (let pad=0xEC; bb.length<dataCap; pad^=0xEC^0x11) push(pad,8);
     const dataCw=new Uint8Array(bb.length/8); bb.forEach((b,i)=>{ dataCw[i>>>3]|=b<<(7-(i&7)); });
-    const {cw:allCw, map:cwMap}=addEcc(dataCw,v,e);
+    const {cw:allCw, map:cwMap}=noEcc ? {cw:dataCw, map:Array.from(dataCw,(_,i)=>i)} : addEcc(dataCw,v,e);
 
     const modules=new Uint8Array(size*size), isFunc=new Uint8Array(size*size), ftype=new Uint8Array(size*size);
     const setF=(x,y,dark,t)=>{ const i=y*size+x; modules[i]=dark?1:0; isFunc[i]=1; ftype[i]=t; };
@@ -468,8 +480,8 @@ const QR = (() => {
     for (let m=0;m<8;m++){ applyMask(m); drawFormat(m); const p=penalty(); if (p<minPen){ minPen=p; best=m; } applyMask(m); }
     applyMask(best); drawFormat(best);
 
-    return { version:v, size, modules, isFunc, ftype, mask:best, order, cwMap, dataCodewords:dataCw.length, totalCodewords:allCw.length,
-             eccLevel:eName, payloadBytes:bytes.length, capacity:capacity(v,eName), maskFn:MASKS[best] };
+    return { version:v, size, modules, isFunc, ftype, mask:best, order, cwMap, dataCodewords:dataCw.length, totalCodewords:allCw.length, noEcc,
+             eccLevel:eName, payloadBytes:bytes.length, capacity:capacity(v,eName,noEcc), maskFn:MASKS[best] };
   }
   function alignPositions(v){ if (v===1) return []; const na=Math.floor(v/7)+2, size=v*4+17;
     const step=(v===32)?26:Math.ceil((v*4+4)/(na*2-2))*2; const r=[6]; for (let pos=size-7; r.length<na; pos-=step) r.splice(1,0,pos); return r; }
@@ -529,7 +541,8 @@ const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim
 const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
 const fast=()=>reduced||$('fast').checked;
 const sleep=ms=>new Promise(r=>setTimeout(r,fast()?0:ms));
-const CAP40=QR.capacity(40,'L');
+const noEcc=()=>!!document.getElementById('noEcc')?.checked; // експериментальний режим без корекції
+const cap40=()=>QR.capacity(40,'L',noEcc());
 let runId=0;
 function animate(ms, draw, alive){ return new Promise(res=>{ if (fast()){ draw(1); return res(); }
   const t0=performance.now(); const tick=now=>{ if (!alive()) return res(); const t=Math.min(1,(now-t0)/ms); draw(t); if (t<1) requestAnimationFrame(tick); else res(); }; requestAnimationFrame(tick); }); }
@@ -583,14 +596,14 @@ function showImage(img){ state.image=img; const frame=$('imgFrame'); frame.inner
   else { frame.innerHTML='<span class="hint" style="padding:12px;text-align:center">'+img.name+'</span>'; }
   $('imgFormat').textContent=img.format; $('imgDims').textContent=img.w?img.w+' × '+img.h+' px':img.name;
   $('imgBytesKb').textContent=fmtKb(img.bytes.length)+' · '+img.name;
-  countUp($('imgBytes'),img.bytes.length); countUp($('imgQrRaw'),Math.max(1,Math.ceil(img.bytes.length/CAP40)));
+  countUp($('imgBytes'),img.bytes.length); countUp($('imgQrRaw'),Math.max(1,Math.ceil(img.bytes.length/cap40()))); $('imgQrRawS').textContent='версія 40, по '+fmtInt(cap40())+' байти'+(noEcc()?' (без корекції)':'');
 }
 async function handleFile(file){ if (!file) return;
   const bytes=new Uint8Array(await file.arrayBuffer()); const url=URL.createObjectURL(file);
   const dims=await new Promise(res=>{ const im=new Image(); im.onload=()=>res({w:im.naturalWidth,h:im.naturalHeight,im}); im.onerror=()=>res(null); im.src=url; });
   state.source={kind:'file',file,bytes,url,dims};
   if ($('fmtSel').value!=='raw' && !dims) $('fmtSel').value='raw'; // не картинка: перемалювати не вийде
-  if ($('fmtSel').value==='raw' && bytes.length>CAP40*40){ $('imgHint').innerHTML='<span class="error">Файл завеликий для показу: понад 40 QR-кодів навіть без стиснення. Оберіть «BMP 128×128» або «PNG 128×128» чи менший файл.</span>'; }
+  if ($('fmtSel').value==='raw' && bytes.length>cap40()*40){ $('imgHint').innerHTML='<span class="error">Файл завеликий для показу: понад 40 QR-кодів навіть без стиснення. Оберіть «BMP 128×128» або «PNG 128×128» чи менший файл.</span>'; }
   else $('imgHint').textContent='Кодуємо байти файлу як є.';
   runPipeline(1);
 }
@@ -617,7 +630,7 @@ async function step2(alive){
   const cand=state.candidate.bytes;
   countUp($('preIn'),img.length,700,fmtInt,alive); countUp($('preOut'),cand.length,900,fmtInt,alive); $('preAlgo').textContent=state.candidate.name;
   $('preRatio').dataset.v=0; await animate(900,t=>{ $('preRatio').textContent='×'+(cand.length/img.length*t).toFixed(3).replace('.',','); },alive);
-  const qrRaw=Math.max(1,Math.ceil(img.length/CAP40)), qrNow=Math.max(1,Math.ceil(cand.length/CAP40));
+  const qrRaw=Math.max(1,Math.ceil(img.length/cap40())), qrNow=Math.max(1,Math.ceil(cand.length/cap40()));
   countUp($('preQr'),qrNow,600,fmtInt,alive); $('preQrWas').textContent=qrNow<qrRaw?'замість '+qrRaw+' без стиснення (версія 40)':'стільки ж, скільки без стиснення';
   await sleep(fast()?0:fills.length*110+400); setNav(2,'done');
 }
@@ -626,12 +639,12 @@ async function step2(alive){
    QR-кодування з кешем і зчитування потоку
    ============================================================ */
 function chooseVersion(len){ const sel=$('verSel').value; if (sel!=='auto') return +sel;
-  const n=Math.max(1,Math.ceil(len/CAP40)); for (let v=1;v<=40;v++) if (QR.capacity(v,'L')*n>=len) return v; return 40; }
+  const n=Math.max(1,Math.ceil(len/cap40())); for (let v=1;v<=40;v++) if (QR.capacity(v,'L',noEcc())*n>=len) return v; return 40; }
 state.qrCache=new Map();
 async function encodeAll(bytes, tag, alive){
-  const v=chooseVersion(bytes.length), key=tag+':'+bytes.length+':'+v; if (state.qrCache.has(key)) return state.qrCache.get(key);
-  const cap=QR.capacity(v,'L'), n=Math.max(1,Math.ceil(bytes.length/cap)), qrs=[];
-  for (let i=0;i<n;i++){ const q=QR.encode(bytes.subarray(i*cap,Math.min((i+1)*cap,bytes.length)),v,'L'); q.index=i; q.scale=n>6?2:4; qrs.push(q); if (!alive()) return null; if (i%2===1) await sleep(0); }
+  const v=chooseVersion(bytes.length), key=tag+':'+bytes.length+':'+v+':'+(noEcc()?'noecc':'std'); if (state.qrCache.has(key)) return state.qrCache.get(key);
+  const cap=QR.capacity(v,'L',noEcc()), n=Math.max(1,Math.ceil(bytes.length/cap)), qrs=[];
+  for (let i=0;i<n;i++){ const q=QR.encode(bytes.subarray(i*cap,Math.min((i+1)*cap,bytes.length)),v,'L',noEcc()); q.index=i; q.scale=n>6?2:4; qrs.push(q); if (!alive()) return null; if (i%2===1) await sleep(0); }
   state.qrCache.set(key,qrs); return qrs;
 }
 const MODE_NAME={all:'усі модулі даних',noecc:'без кодів корекції',payload:'лише корисні байти'};
@@ -690,7 +703,8 @@ async function step3(alive){
   await sleep(50); fills.forEach(([f,v],i)=>setTimeout(()=>{ f.style.width=(v/maxV*100)+'%'; },fast()?0:i*120));
   $('evChosen').textContent='Стратегія '+best.s+' · '+MODE_NAME[best.m]; $('evChosenS').textContent=STRAT[best.s].name.slice(3);
   countUp($('evFinal'),best.size,900,fmtInt,alive); $('evFinalS').textContent=pct(best.size,raw.length)+' від файлу · '+ev[best.s].sizes[best.m].name;
-  $('evEcc').textContent=best.m==='all'?'у потоці':'викинуті'; $('evEccS').textContent=best.m==='all'?'рівень L, близько 7 % кодових слів':'сканер знає їхні позиції, тож ми їх не зчитуємо';
+  if (noEcc()){ $('evEcc').textContent='немає'; $('evEccS').textContent='експериментальний код без корекції'; }
+  else { $('evEcc').textContent=best.m==='all'?'у потоці':'викинуті'; $('evEccS').textContent=best.m==='all'?'рівень L, близько 7 % кодових слів':'сканер знає їхні позиції, тож ми їх не зчитуємо'; }
   const payloadEq=ev.B.sizes.payload.size===cand.length;
   $('evNote').innerHTML='Що означають стовпчики: <b>усі модулі даних</b> — усе, що лишилось після службових шаблонів, разом із кодовими словами корекції та заповнювачами; <b>без кодів корекції</b> — лише кодові слова даних (заголовок, байти файлу, заповнювачі); <b>лише корисні байти</b> — рівно ті байти, які ми поклали в код. '+
     (payloadEq?'В останньому варіанті стратегія B дає рівно розмір кандидата: QR-код не додає і не забирає жодного байта.':'')+
@@ -713,7 +727,7 @@ function makeLayers(q){ // шари 1 px на модуль: дані, служб
   dataC.getContext('2d').putImageData(dI,0,0); funcC.getContext('2d').putImageData(fI,0,0); colC.getContext('2d').putImageData(cI,0,0);
   q.layers={dataC,funcC,colC,readC};
 }
-function qrCard(q, i, grid){ const card=document.createElement('div'); card.className='qr-card'; const cv=document.createElement('canvas'); cv.width=cv.height=q.size*q.scale; cv.style.animationDelay=(Math.min(i,12)*60)+'ms';
+function qrCard(q, i, grid){ const card=document.createElement('div'); card.className='qr-card'+(q.noEcc?' nonstd':''); const cv=document.createElement('canvas'); cv.width=cv.height=q.size*q.scale; cv.style.animationDelay=(Math.min(i,12)*60)+'ms';
   const cap=document.createElement('div'); cap.className='cap'; card.append(cv,cap); grid.appendChild(card); const ctx=cv.getContext('2d'); ctx.imageSmoothingEnabled=false; return {card,cv,ctx,cap}; }
 function paint(ctx, q, {dataFrac=1, funcMode='plain', funcAlpha=1, readLayer=false}={}){ const S=q.size, s=q.scale; ctx.clearRect(0,0,S*s,S*s); ctx.fillStyle='#fff'; ctx.fillRect(0,0,S*s,S*s);
   ctx.imageSmoothingEnabled=false;
@@ -734,7 +748,7 @@ async function step4(alive){
   $('qrVer').textContent='версія '+v+', рівень L, '+state.payload.name;
   countUp($('qrCount'),n,500); countUp($('qrCap'),cap,600); countUp($('qrModules'),n*(v*4+17)**2,800); $('qrSide').textContent=n+' × '+(v*4+17)+'×'+(v*4+17);
   $('qrFill').dataset.v=0; await animate(600,t=>{ $('qrFill').textContent=(data.length/(n*cap)*100*t).toFixed(1).replace('.',',')+' %'; },alive);
-  const cards=qrs.map((q,i)=>{ const c=qrCard(q,i,grid); c.cap.innerHTML='<b>QR '+(i+1)+' з '+n+'</b> · '+fmtInt(q.payloadBytes)+' байт · '+fmtInt(q.dataCodewords)+' кодових слів + '+fmtInt(q.totalCodewords-q.dataCodewords)+' EC'; return c; });
+  const cards=qrs.map((q,i)=>{ const c=qrCard(q,i,grid); c.cap.innerHTML='<b>QR '+(i+1)+' з '+n+'</b> · '+fmtInt(q.payloadBytes)+' байт · '+fmtInt(q.dataCodewords)+' кодових слів'+(q.noEcc?' · <span style="color:var(--bad)">без корекції, нестандартний</span>':' + '+fmtInt(q.totalCodewords-q.dataCodewords)+' EC (корекція)'); return c; });
   const ms=perQrMs(n);
   for (let i=0;i<qrs.length;i++){ const q=qrs[i], c=cards[i]; paint(c.ctx,q,{dataFrac:0}); await sleep(Math.min(120,ms/4));
     await animate(ms, t=>paint(c.ctx,q,{dataFrac:t}), alive); if (!alive()) return; }
@@ -790,8 +804,32 @@ async function step6(alive){
   $('skippedS').textContent=mode==='all'?'нічого не пропускаємо':(mode==='noecc'?'коди корекції та залишкові модулі':'корекція, заголовки, заповнювачі, залишок');
   countUp($('txt'),s.text.length,700,fmtInt,alive);
   $('bitsDump').textContent=s.textStr.slice(0,2048).replace(/(.{64})/g,'$1\n')+(s.bits.length>2048?'\n…':'');
+  // збірка: зчитуємо лише корисні байти і порівнюємо з тим, що поклали в коди
+  const got=buildStreamFor(qrs,{unmask:true,mode:'payload'}).packed, put=state.payload.bytes;
+  const same=got.length===put.length && got.every((b,i)=>b===put[i]);
+  $('assemble').textContent=same?'✓ байт у байт':'✗ не збігається'; $('assemble').style.color=same?'var(--ok)':'var(--bad)';
+  $('assembleS').textContent=fmtInt(got.length)+' байт із '+qrs.length+' код'+(qrs.length===1?'у':'ів')+(qrs[0].noEcc?', код без корекції':'');
+  blockDictionary(qrs);
   setNav(6,'done');
 }
+// Оцінка ідеї «словник блоків N×N»: частоти блоків у матриці даних, ентропія, вартість словника
+function blockDictionary(qrs){
+  const tb=$('dictTable').querySelector('tbody'); tb.innerHTML=''; const unmask=$('unmask').checked; const packedLen=state.stream.packed.length;
+  const rows=[];
+  for (const N of [2,4,8,16]){ const freq=new Map(); let blocks=0;
+    for (const q of qrs){ const S=q.size;
+      for (let by=0;by+N<=S;by+=N) for (let bx=0;bx+N<=S;bx+=N){ let key='';
+        for (let y=by;y<by+N;y++) for (let x=bx;x<bx+N;x++){ const idx=y*S+x; let b=q.isFunc[idx]?0:q.modules[idx]; if (!q.isFunc[idx]&&unmask&&q.maskFn(x,y)) b^=1; key+=b; }
+        freq.set(key,(freq.get(key)||0)+1); blocks++; } }
+    const U=freq.size; let H=0; for (const f of freq.values()){ const p=f/blocks; H-=p*Math.log2(p); }
+    const fixedBits=Math.max(1,Math.ceil(Math.log2(U))); const letter=Math.ceil(blocks*fixedBits/8), entropy=Math.ceil(blocks*H/8), dict=Math.ceil(U*N*N/8);
+    rows.push({N,blocks,U,H,fixedBits,letter,entropy,dict});
+    const tr=document.createElement('tr'); tr.innerHTML='<td>'+N+'×'+N+'</td><td>'+fmtInt(blocks)+'</td><td>'+fmtInt(U)+' із '+(N*N<=16?fmtInt(2**(N*N)):'2^'+N*N)+' можливих</td><td>'+H.toFixed(2).replace('.',',')+' із '+N*N+'</td><td>'+fmtInt(letter)+' Б</td><td>'+fmtInt(entropy)+' Б</td><td>'+fmtInt(entropy+dict)+' Б</td>'; tb.appendChild(tr); }
+  const best=rows.reduce((a,r)=>(r.entropy+r.dict)<(a.entropy+a.dict)?r:a,rows[0]);
+  $('dictNote').innerHTML='Для порівняння: потік, просто упакований по 8 бітів у байт, займає <b>'+fmtInt(packedLen)+' Б</b>. Найкращий словник ('+best.N+'×'+best.N+') дав би '+fmtInt(best.entropy+best.dict)+' Б. '+
+    (best.entropy+best.dict>=packedLen*0.98?'Виграшу немає: після стиснення біти майже випадкові, кожен блок трапляється приблизно однаково часто, а великі блоки майже всі унікальні, тож словник коштує дорожче за самі дані. Послідовність на кшталт 1110101010 «як байт» — це і є звичайне упакування 8 бітів у байт, воно вже зроблено.':'Невеликий виграш є, бо дані в кодах не стиснені й блоки повторюються; але deflate на кроці 7 знаходить ці ж повтори краще, бо шукає їх у вікні 32 КіБ, а не лише в сітці N×N.');
+}
+
 /* ============================================================
    Крок 7: повторне стиснення потоку
    ============================================================ */
@@ -826,7 +864,7 @@ async function step8(alive){
   const ok=state.results.filter(r=>r.packed!=null); const bestZip=ok.reduce((a,r)=>r.packed<a.packed?r:a,ok[0]);
   const finalSize=(st==='B')?raw:bestZip.packed, finalName=(st==='B')?'потік без стиснення':bestZip.name;
   state.final={size:finalSize,name:finalName};
-  const n=state.qrs.length, nRaw=Math.max(1,Math.ceil(img/CAP40)), v=state.qrs[0].version;
+  const n=state.qrs.length, nRaw=Math.max(1,Math.ceil(img/cap40())), v=state.qrs[0].version;
   countUp($('sumImg'),img,800,fmtInt,alive); $('sumImgS').textContent='байтів, '+state.image.format;
   countUp($('sumPay'),pay,900,fmtInt,alive); $('sumPayS').textContent=state.payload.name+', '+pct(pay,img)+' від файлу';
   countUp($('sumQr'),n,700,fmtInt,alive); $('sumQrS').textContent='версія '+v+(v===40?(n<nRaw?', замість '+nRaw+' без стиснення':', стільки ж без стиснення'):'');
@@ -839,11 +877,12 @@ async function step8(alive){
   const ev=state.eval, alt=['A','B','C'].filter(s=>s!==st).map(s=>s+': '+fmtInt(ev[s].sizes[mode].size)+' Б').join(', ');
   const ecc=state.qrs.reduce((a,q)=>a+q.totalCodewords-q.dataCodewords,0), pad=Math.max(0,state.qrs.reduce((a,q)=>a+q.dataCodewords,0)-pay-n*(v<10?2:3));
   let t='Перемогла <b>стратегія '+st+'</b> ('+STRAT[st].name.slice(3)+') із вмістом потоку «'+MODE_NAME[mode]+'»: кінцевий розмір <b>'+fmtInt(finalSize)+' байт</b>, це '+pct(finalSize,img)+' від вихідного файлу. Інші стратегії в тому самому вмісті: '+alt+'. ';
-  if (state.candidate.compressed) t+='Стиснення до QR зменшило дані з '+fmtInt(img)+' до '+fmtInt(state.candidate.bytes.length)+' байт ('+state.candidate.name+'), тож замість '+nRaw+' QR-кодів версії 40 потрібно '+Math.max(1,Math.ceil(state.candidate.bytes.length/CAP40))+'. ';
+  if (state.candidate.compressed) t+='Стиснення до QR зменшило дані з '+fmtInt(img)+' до '+fmtInt(state.candidate.bytes.length)+' байт ('+state.candidate.name+'), тож замість '+nRaw+' QR-кодів версії 40 потрібно '+Math.max(1,Math.ceil(state.candidate.bytes.length/cap40()))+'. ';
   else t+='Жоден алгоритм не зменшив файл ('+state.image.format+' уже стиснений усередині), тому кількість QR-кодів однакова для всіх стратегій'+(st==='B'?', а стратегія B звелась до простого «файл → QR». ':'. ');
   if (mode==='all') t+='У потоці лишились '+fmtInt(ecc)+' байт кодів корекції та '+fmtInt(pad)+' байт заповнювачів: заповнювачі архіватор прибирає, а корекція виглядає як шум і не стискається. ';
   else if (mode==='noecc') t+='Коди корекції ('+fmtInt(ecc)+' байт) ми не зчитували: їхні позиції відомі, сканер відтворить їх сам. Лишились '+fmtInt(pad)+' байт заповнювачів, які добре стискаються. ';
   else t+='Зчитані лише корисні байти: ні корекції ('+fmtInt(ecc)+' байт), ні заповнювачів ('+fmtInt(pad)+' байт), ні заголовків. Тому QR-код тут повністю прозорий: що поклали, те й дістали, байт у байт. ';
+  if (noEcc()) t+='Увімкнено експериментальний режим: коди згенеровано взагалі без кодових слів корекції, тож один код версії 40 вміщує '+fmtInt(cap40())+' байт; це вже не QR за стандартом, і прочитає його лише зчитувач на цій сторінці (крок 6 підтверджує збірку байт у байт). ';
   t+='Платимо за це стійкістю: без корекції будь-який невірно прочитаний модуль зіпсує архів. Загальний висновок: стискати треба один раз і до QR, корекцію з потоку можна викинути, а повторне стиснення після QR або нічого не дає, або додає кілька байтів заголовків архіву.';
   $('verdict').innerHTML=t;
   setNav(8,'done'); $('runState').textContent='Готово';
@@ -878,6 +917,7 @@ async function runPipeline(from=1){ const id=++runId; const alive=()=>id===runId
   $('stratSel').addEventListener('change',()=>{ if (state.candidate) runPipeline(3); });
   $('modeSel').addEventListener('change',()=>{ if (state.candidate) runPipeline(3); });
   $('verSel').addEventListener('change',()=>{ if (state.candidate){ state.qrCache.clear(); runPipeline(3); } });
+  $('noEcc').addEventListener('change',()=>{ state.qrCache.clear(); runPipeline(1); });
   $('redoQr').addEventListener('click',()=>{ if (state.payload) runPipeline(4); });
   $('redoStrip').addEventListener('click',()=>{ if (state.qrs.length) runPipeline(5); });
   $('redoRead').addEventListener('click',()=>{ if (state.qrs.length) runPipeline(6); });
