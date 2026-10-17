@@ -14,7 +14,7 @@
 :root{
   --bg:#edf1f8; --surface:#ffffff; --surface-2:#f4f6fb; --fg:#121a2b; --muted:#5b6678; --line:#d3dae7;
   --accent:#0b4fb3; --accent-ink:#ffffff; --accent-soft:#dde8fb;
-  --gold:#c89a00; --gold-soft:#fff0bd; --ok:#1d7f4a; --warn:#b4501a; --bad:#b3261e;
+  --gold:#c89a00; --gold-soft:#fff0bd; --ok:#1d7f4a; --ok-soft:#dff3e7; --warn:#b4501a; --bad:#b3261e;
   --qr-dark:#0d1220; --qr-light:#ffffff;
   --ft-finder:#d9a400; --ft-sep:#efd57a; --ft-timing:#0aa38f; --ft-align:#7b4fd1; --ft-format:#d6336c; --ft-version:#e8701a; --ft-dark:#8c1d3f;
   --read:#0b4fb3;
@@ -26,13 +26,13 @@
 @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
   --bg:#0b111e; --surface:#141c2e; --surface-2:#1a2438; --fg:#e7ecf5; --muted:#9aa6bc; --line:#283450;
   --accent:#7aa9ff; --accent-ink:#0b111e; --accent-soft:#1b2d52;
-  --gold:#f0c53a; --gold-soft:#3b3110; --ok:#52c98d; --warn:#f0a06a; --bad:#ff8a80;
+  --gold:#f0c53a; --gold-soft:#3b3110; --ok:#52c98d; --ok-soft:#143826; --warn:#f0a06a; --bad:#ff8a80;
   --ft-finder:#f0c53a; --ft-sep:#8a7a3a; --ft-timing:#36d1b8; --ft-align:#a98bff; --ft-format:#ff6b9c; --ft-version:#ff9a4a; --ft-dark:#ff4d7a;
   --read:#7aa9ff; --shadow:0 10px 30px rgba(0,0,0,.35); color-scheme:dark }}
 :root[data-theme="dark"]{
   --bg:#0b111e; --surface:#141c2e; --surface-2:#1a2438; --fg:#e7ecf5; --muted:#9aa6bc; --line:#283450;
   --accent:#7aa9ff; --accent-ink:#0b111e; --accent-soft:#1b2d52;
-  --gold:#f0c53a; --gold-soft:#3b3110; --ok:#52c98d; --warn:#f0a06a; --bad:#ff8a80;
+  --gold:#f0c53a; --gold-soft:#3b3110; --ok:#52c98d; --ok-soft:#143826; --warn:#f0a06a; --bad:#ff8a80;
   --ft-finder:#f0c53a; --ft-sep:#8a7a3a; --ft-timing:#36d1b8; --ft-align:#a98bff; --ft-format:#ff6b9c; --ft-version:#ff9a4a; --ft-dark:#ff4d7a;
   --read:#7aa9ff; --shadow:0 10px 30px rgba(0,0,0,.35); color-scheme:dark }
 
@@ -84,9 +84,9 @@ code,.mono{font-family:var(--f-mono);font-size:.92em}
 .step-no{font:700 .8rem/1 var(--f-mono);color:var(--accent);background:var(--accent-soft);border-radius:8px;padding:8px 9px;margin-top:2px}
 .step-head p{color:var(--muted);font-size:.95rem;margin-top:4px;max-width:70ch}
 .controls{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center}
-select,input[type=file]{font:inherit;color:inherit;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:6px 8px}
+select,input[type=file]{font:inherit;color:inherit;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:6px 8px;max-width:100%}
+input[type=file]{min-width:0}
 label.field{display:inline-flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:.92rem;max-width:100%}
-input[type=file]{max-width:100%;min-width:0}
 
 .stats{display:flex;flex-wrap:wrap;gap:10px}
 .stat{background:var(--surface-2);border-radius:10px;padding:10px 14px;min-width:120px;display:grid;gap:2px}
@@ -95,6 +95,7 @@ input[type=file]{max-width:100%;min-width:0}
 .stat .s{font-size:.8rem;color:var(--muted)}
 .stat.gold .v{color:var(--gold)}
 .stat.accent .v{color:var(--accent)}
+.stat.ok .v{color:var(--ok)}
 
 /* step 1 */
 .img-row{display:grid;grid-template-columns:auto minmax(0,1fr);gap:20px;align-items:start}
@@ -107,10 +108,13 @@ input[type=file]{max-width:100%;min-width:0}
 
 /* QR grid */
 .qr-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}
+.qr-grid.many{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
 .qr-card{background:var(--surface-2);border-radius:12px;padding:12px;display:grid;gap:8px;justify-items:center;animation:rise .5s ease both}
+.many .qr-card{padding:8px}
 @keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
 .qr-card canvas{width:100%;max-width:340px;height:auto;background:#fff;border-radius:6px;image-rendering:pixelated;box-shadow:0 2px 10px rgba(0,0,0,.12)}
 .qr-card .cap{font-size:.82rem;color:var(--muted);text-align:center}
+.many .qr-card .cap{font-size:.74rem}
 .qr-card .cap b{color:var(--fg);font-weight:600}
 .legend{display:flex;flex-wrap:wrap;gap:8px 14px;font-size:.82rem;color:var(--muted)}
 .legend span{display:inline-flex;gap:6px;align-items:center}
@@ -126,13 +130,15 @@ details pre{font:.72rem/1.5 var(--f-mono);white-space:pre-wrap;word-break:break-
 
 /* chart */
 .chart{display:grid;gap:8px}
-.bar-row{display:grid;grid-template-columns:150px minmax(0,1fr) 112px;gap:10px;align-items:center;font-size:.9rem}
+.bar-row{display:grid;grid-template-columns:150px minmax(0,1fr) 112px;gap:10px;align-items:center;font-size:.9rem;border-radius:8px;padding:2px 4px;margin:-2px -4px}
+.bar-row.chosen{background:var(--ok-soft)}
 @media (max-width:560px){.bar-row{grid-template-columns:110px minmax(0,1fr) 92px;font-size:.82rem}}
 .bar-row .lbl{color:var(--fg);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bar-row .lbl small{display:block;color:var(--muted);font-weight:400;font-size:.78em}
 .track{position:relative;height:18px;background:var(--surface-2);border-radius:4px;overflow:visible}
 .track .fill{height:100%;width:0;border-radius:4px;background:var(--accent);transition:width 1.1s cubic-bezier(.2,.8,.2,1);min-width:2px}
 .track .fill.ref{background:var(--gold)}
+.track .fill.ok{background:var(--ok)}
 .track .fill.na{background:var(--line)}
 .track .marker{position:absolute;top:-5px;bottom:-5px;width:2px;background:var(--gold);border-radius:1px;opacity:.9}
 .bar-row .val{text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
@@ -158,6 +164,7 @@ td.best{color:var(--ok);font-weight:600}
 .flow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:.86rem;color:var(--muted)}
 .flow .chip{background:var(--surface-2);border-radius:999px;padding:4px 12px;color:var(--fg);font-variant-numeric:tabular-nums}
 .flow .chip.hi{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.flow .chip.ok{background:var(--ok-soft);color:var(--ok);font-weight:600}
 .spin{display:inline-block;width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;vertical-align:-2px}
 @keyframes spin{to{transform:rotate(360deg)}}
 .error{color:var(--bad);font-size:.9rem}
@@ -167,8 +174,8 @@ td.best{color:var(--ok);font-weight:600}
 <header class="hero">
   <div class="wrap">
     <p class="eyebrow">Експеримент зі стисненням</p>
-    <h1>Зображення → QR-коди → потік бітів → архів</h1>
-    <p class="lead">Беремо картинку, ріжемо її байти на QR-коди максимальної місткості, викидаємо з кожного коду службові шаблони, склеюємо модулі даних в один потік нулів та одиниць і дивимось, скільки з нього вичавлять стандартні архіватори. Кожен крок анімований і рахується прямо в браузері.</p>
+    <h1>Зображення → архів → QR-коди → потік бітів</h1>
+    <p class="lead">Беремо картинку, спершу стискаємо її байти найкращим із доступних алгоритмів, ріжемо результат на QR-коди максимальної місткості, викидаємо з кожного коду службові шаблони і склеюємо модулі даних в один потік нулів та одиниць. Наприкінці перевіряємо, чи дає щось повторне стиснення цього потоку. Кожен крок анімований і рахується прямо в браузері.</p>
     <div class="hero-actions">
       <button class="btn gold" id="runAll">▶ Пройти всі кроки</button>
       <label class="toggle"><input type="checkbox" id="fast"> Без анімації</label>
@@ -180,38 +187,60 @@ td.best{color:var(--ok);font-weight:600}
 <main class="wrap layout">
   <nav class="rail" aria-label="Кроки">
     <a href="#s1" data-nav="1"><span class="dot">1</span>Зображення</a>
-    <a href="#s2" data-nav="2"><span class="dot">2</span>QR-коди</a>
-    <a href="#s3" data-nav="3"><span class="dot">3</span>Без службових шаблонів</a>
-    <a href="#s4" data-nav="4"><span class="dot">4</span>Потік бітів</a>
-    <a href="#s5" data-nav="5"><span class="dot">5</span>Стиснення</a>
-    <a href="#s6" data-nav="6"><span class="dot">6</span>Підсумок</a>
+    <a href="#s2" data-nav="2"><span class="dot">2</span>Стискаємо файл</a>
+    <a href="#s3" data-nav="3"><span class="dot">3</span>QR-коди</a>
+    <a href="#s4" data-nav="4"><span class="dot">4</span>Без службових шаблонів</a>
+    <a href="#s5" data-nav="5"><span class="dot">5</span>Потік бітів</a>
+    <a href="#s6" data-nav="6"><span class="dot">6</span>Повторне стиснення</a>
+    <a href="#s7" data-nav="7"><span class="dot">7</span>Підсумок</a>
   </nav>
 
   <div class="steps">
     <!-- 1 -->
     <section class="step on" id="s1">
-      <div class="step-head"><span class="step-no">01</span><div><h2>Зображення та його розмір</h2><p>За замовчуванням це золотий тризуб на блакитному тлі 128×128, намальований на canvas і закодований у PNG. Можна завантажити будь-який свій файл.</p></div></div>
+      <div class="step-head"><span class="step-no">01</span><div><h2>Зображення та його розмір</h2><p>За замовчуванням це золотий тризуб на блакитному тлі 128×128, намальований на canvas. Його можна зберегти як нестиснений BMP або як PNG, а можна завантажити будь-який свій файл.</p></div></div>
       <div class="img-row">
         <div class="img-frame" id="imgFrame"><canvas id="srcCanvas" width="128" height="128"></canvas></div>
         <div style="display:grid;gap:12px;min-width:0">
           <div class="stats">
             <div class="stat gold"><span class="k">Розмір файлу</span><span class="v num" id="imgBytes">—</span><span class="s" id="imgBytesKb"></span></div>
-            <div class="stat"><span class="k">Формат</span><span class="v" id="imgFormat">PNG</span><span class="s" id="imgDims">128 × 128 px</span></div>
-            <div class="stat"><span class="k">Бітів</span><span class="v num" id="imgBits">—</span><span class="s">файл як є</span></div>
+            <div class="stat"><span class="k">Формат</span><span class="v" id="imgFormat">BMP</span><span class="s" id="imgDims">128 × 128 px</span></div>
+            <div class="stat"><span class="k">QR-кодів без стиснення</span><span class="v num" id="imgQrRaw">—</span><span class="s">версія 40, по 2 953 байти</span></div>
           </div>
           <div class="controls">
+            <label class="field">Формат <select id="fmtSel">
+              <option value="bmp">BMP 24 біти 128×128 (нестиснений)</option>
+              <option value="png">PNG 128×128 (уже стиснений)</option>
+              <option value="raw">Свій файл як є</option>
+            </select></label>
             <label class="field">Свій файл <input type="file" id="fileInput" accept="image/*"></label>
-            <label class="toggle"><input type="checkbox" id="resize128"> Перемалювати у PNG 128×128</label>
             <button class="btn ghost small" id="resetImg">Повернути тризуб</button>
           </div>
-          <p class="hint" id="imgHint">Кодуємо саме байти файлу, а не пікселі: PNG уже стиснений алгоритмом deflate, і це головна інтрига експерименту.</p>
+          <p class="hint" id="imgHint">Кодуємо байти файлу, а не пікселі. BMP зберігає кожен піксель трьома байтами, тому він великий і добре стискається. PNG уже стиснений алгоритмом deflate, тому майже не стискається вдруге.</p>
         </div>
       </div>
     </section>
 
     <!-- 2 -->
     <section class="step" id="s2">
-      <div class="step-head"><span class="step-no">02</span><div><h2>Пакуємо байти у QR-коди</h2><p>Рівень корекції помилок L — найнижчий, який дозволяє стандарт (близько 7 % кодових слів, зовсім без корекції QR не буває). Версія 40 у байтовому режимі вміщує 2 953 байти. Якщо файл більший, ріжемо його на кілька кодів.</p></div></div>
+      <div class="step-head"><span class="step-no">02</span><div><h2>Стискаємо файл до того, як класти в QR</h2><p>QR-код лише контейнер, він не вміє зменшувати дані. Тому стискати треба до пакування: беремо байти файлу, проганяємо через кожен алгоритм і далі працюємо з найкоротшим результатом. Якщо жоден не допоміг, беремо файл як є.</p></div></div>
+      <div class="controls">
+        <label class="field">Алгоритм <select id="algoSel"><option value="auto">авто: найкоротший результат</option></select></label>
+        <span id="preState" class="hint"></span>
+      </div>
+      <div class="axis-note"><span><i style="background:var(--gold)"></i>файл як є</span><span><i style="background:var(--accent)"></i>після стиснення</span><span><i style="background:var(--ok)"></i>обраний варіант</span></div>
+      <div class="chart" id="preChart"></div>
+      <div class="stats">
+        <div class="stat gold"><span class="k">Було</span><span class="v num" id="preIn">—</span><span class="s">байтів файлу</span></div>
+        <div class="stat ok"><span class="k">Стало</span><span class="v num" id="preOut">—</span><span class="s" id="preAlgo"></span></div>
+        <div class="stat"><span class="k">Коефіцієнт</span><span class="v num" id="preRatio">—</span><span class="s">розмір після / до</span></div>
+        <div class="stat accent"><span class="k">QR-кодів</span><span class="v num" id="preQr">—</span><span class="s" id="preQrWas"></span></div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="step" id="s3">
+      <div class="step-head"><span class="step-no">03</span><div><h2>Пакуємо стиснені байти у QR-коди</h2><p>Рівень корекції помилок L — найнижчий, який дозволяє стандарт (близько 7 % кодових слів, зовсім без корекції QR не буває). Версія 40 у байтовому режимі вміщує 2 953 байти. Якщо даних більше, ріжемо їх на кілька кодів.</p></div></div>
       <div class="controls">
         <label class="field">Версія QR <select id="verSel"></select></label>
         <span class="hint" id="capHint"></span>
@@ -226,9 +255,9 @@ td.best{color:var(--ok);font-weight:600}
       <div class="qr-grid" id="qrGrid"></div>
     </section>
 
-    <!-- 3 -->
-    <section class="step" id="s3">
-      <div class="step-head"><span class="step-no">03</span><div><h2>Прибираємо службові шаблони</h2><p>Пошукові квадрати по кутах, роздільники, синхродоріжки, вирівнювальні мітки, біти формату та версії сканер і так знає наперед — їх можна домалювати синтетично. Лишаємо тільки модулі з кодовими словами.</p></div></div>
+    <!-- 4 -->
+    <section class="step" id="s4">
+      <div class="step-head"><span class="step-no">04</span><div><h2>Прибираємо службові шаблони</h2><p>Пошукові квадрати по кутах, роздільники, синхродоріжки, вирівнювальні мітки, біти формату та версії сканер і так знає наперед — їх можна домалювати синтетично. Лишаємо тільки модулі з кодовими словами.</p></div></div>
       <div class="legend">
         <span><i style="background:var(--ft-finder)"></i>Пошукові</span>
         <span><i style="background:var(--ft-sep)"></i>Роздільники</span>
@@ -246,9 +275,9 @@ td.best{color:var(--ok);font-weight:600}
       <div class="qr-grid" id="stripGrid"></div>
     </section>
 
-    <!-- 4 -->
-    <section class="step" id="s4">
-      <div class="step-head"><span class="step-no">04</span><div><h2>Зчитуємо модулі в один потік бітів</h2><p>Обходимо модулі даних у стандартному зиґзаґу знизу вгору, двома стовпчиками, і записуємо темний як 1, світлий як 0. Коди склеюємо один за одним.</p></div></div>
+    <!-- 5 -->
+    <section class="step" id="s5">
+      <div class="step-head"><span class="step-no">05</span><div><h2>Зчитуємо модулі в один потік бітів</h2><p>Обходимо модулі даних у стандартному зиґзаґу знизу вгору, двома стовпчиками, і записуємо темний як 1, світлий як 0. Коди склеюємо один за одним.</p></div></div>
       <div class="controls">
         <label class="toggle"><input type="checkbox" id="unmask" checked> Зняти XOR-маску (бачити справжні кодові слова)</label>
         <label class="toggle"><input type="checkbox" id="withEcc" checked> Включати кодові слова корекції</label>
@@ -264,23 +293,23 @@ td.best{color:var(--ok);font-weight:600}
       <details><summary>Перші 2048 бітів потоку</summary><pre id="bitsDump"></pre></details>
     </section>
 
-    <!-- 5 -->
-    <section class="step" id="s5">
-      <div class="step-head"><span class="step-no">05</span><div><h2>Стискаємо потік різними алгоритмами</h2><p>gzip, zlib-deflate і сирий deflate рахує сам браузер через CompressionStream. LZW, статичний Хаффман та RLE реалізовані тут же на JavaScript. Золота риска — розмір вихідного файлу.</p></div></div>
-      <div class="controls"><button class="btn small" id="redoZip">Стиснути знову</button><span id="zipState" class="hint"></span></div>
-      <div class="axis-note"><span><i style="background:var(--accent)"></i>потік QR-бітів після стиснення</span><span><i style="background:var(--gold)"></i>вихідний файл зображення</span></div>
-      <div class="chart" id="chart"></div>
-      <div class="tbl"><table id="zipTable"><thead><tr><th>Алгоритм</th><th>Потік бітів</th><th>% від вихідного</th><th>Потік як текст 0/1</th><th>Сам файл зображення</th></tr></thead><tbody></tbody></table></div>
-    </section>
-
     <!-- 6 -->
     <section class="step" id="s6">
-      <div class="step-head"><span class="step-no">06</span><div><h2>Підсумок</h2><p>Порівнюємо розмір зображення до всіх перетворень і після того, як його пропустили через QR-коди та найкращий архіватор.</p></div></div>
+      <div class="step-head"><span class="step-no">06</span><div><h2>Чи стискається потік ще раз?</h2><p>Проганяємо потік QR-бітів через ті самі алгоритми. Золота риска — розмір даних, які ми поклали в QR на кроці 3. Якщо файл уже стиснений, архіватор прибере хіба що заповнювачі, а байти корекції лишаться: вони виглядають як шум.</p></div></div>
+      <div class="controls"><button class="btn small" id="redoZip">Стиснути знову</button><span id="zipState" class="hint"></span></div>
+      <div class="axis-note"><span><i style="background:var(--accent)"></i>потік QR-бітів після стиснення</span><span><i style="background:var(--gold)"></i>дані, покладені в QR</span></div>
+      <div class="chart" id="chart"></div>
+      <div class="tbl"><table id="zipTable"><thead><tr><th>Алгоритм</th><th>Потік бітів</th><th>% від даних у QR</th><th>Потік як текст 0/1</th><th>Вихідний файл</th></tr></thead><tbody></tbody></table></div>
+    </section>
+
+    <!-- 7 -->
+    <section class="step" id="s7">
+      <div class="step-head"><span class="step-no">07</span><div><h2>Підсумок</h2><p>Порівнюємо розмір зображення до всіх перетворень із тим, що ми реально поклали в QR-коди, і з потоком бітів, який вийшов на виході.</p></div></div>
       <div class="summary">
-        <div class="tile a"><span class="k">Вихідне зображення</span><span class="v num" id="sumImg">—</span><span class="s">байтів файлу</span></div>
-        <div class="tile b"><span class="k">Потік QR-бітів</span><span class="v num" id="sumRaw">—</span><span class="s" id="sumRawS">байтів без стиснення</span></div>
-        <div class="tile c"><span class="k">Після стиснення</span><span class="v num" id="sumBest">—</span><span class="s" id="sumBestS"></span></div>
-        <div class="tile"><span class="k">Відношення</span><span class="v num" id="sumRatio">—</span><span class="s">стиснений потік / вихідний файл</span></div>
+        <div class="tile a"><span class="k">Вихідне зображення</span><span class="v num" id="sumImg">—</span><span class="s" id="sumImgS">байтів файлу</span></div>
+        <div class="tile c"><span class="k">Покладено в QR</span><span class="v num" id="sumPay">—</span><span class="s" id="sumPayS"></span></div>
+        <div class="tile b"><span class="k">QR-кодів</span><span class="v num" id="sumQr">—</span><span class="s" id="sumQrS"></span></div>
+        <div class="tile"><span class="k">Потік бітів, ще раз стиснутий</span><span class="v num" id="sumBest">—</span><span class="s" id="sumBestS"></span></div>
       </div>
       <div class="flow" id="flow"></div>
       <p class="verdict" id="verdict"></p>
@@ -424,8 +453,8 @@ function packBits(data){ const out=[]; const n=data.length; let i=0;
     out.push(lit-1); for (let k=i;k<j;k++) out.push(data[k]); i=j; }
   return Uint8Array.from(out); }
 function lzw(data){ // класичний LZW зі змінною шириною коду 9–12 біт, без скидання словника
-  let dict=new Map(), next=258, width=9, bitCount=0; const bits=[];
-  const emit=code=>{ for (let i=width-1;i>=0;i--) bits.push((code>>>i)&1); bitCount+=width; };
+  let dict=new Map(), next=258, width=9; const bits=[];
+  const emit=code=>{ for (let i=width-1;i>=0;i--) bits.push((code>>>i)&1); };
   let w=-1;
   for (let i=0;i<data.length;i++){ const c=data[i]; if (w<0){ w=c; continue; } const key=w*4096+c;
     if (dict.has(key)) w=dict.get(key); else { emit(w); if (next<4096){ dict.set(key,next++); if (next>(1<<width)&&width<12) width++; } w=c; } }
@@ -440,15 +469,17 @@ function huffmanSize(data){ // статичний канонічний Хафф�
   let bits=0; (function walk(n,d){ if (n.s!==undefined){ bits+=n.f*Math.max(d,1); return; } walk(n.l,d+1); walk(n.r,d+1); })(nodes[0],0);
   const syms=freq.filter(f=>f>0).length; return 6+syms*2+Math.ceil(bits/8); }
 
+// run повертає байти (щоб їх можна було покласти в QR), size — лише розмір
 const ALGOS=[
-  { id:'gzip', name:'gzip', sub:'CompressionStream', run:b=>compressNative('gzip',b).then(r=>r.length) },
-  { id:'deflate', name:'deflate (zlib)', sub:'CompressionStream', run:b=>compressNative('deflate',b).then(r=>r.length) },
-  { id:'deflate-raw', name:'deflate-raw', sub:'без заголовків', run:b=>compressNative('deflate-raw',b).then(r=>r.length) },
-  { id:'brotli', name:'brotli', sub:'якщо підтримує браузер', run:b=>compressNative('brotli',b).then(r=>r.length) },
-  { id:'lzw', name:'LZW', sub:'власна реалізація, 12 біт', run:async b=>lzw(b).length },
-  { id:'huff', name:'Хаффман', sub:'статичний, власний', run:async b=>huffmanSize(b) },
-  { id:'rle', name:'RLE (PackBits)', sub:'власна реалізація', run:async b=>packBits(b).length },
+  { id:'gzip', name:'gzip', sub:'CompressionStream', run:b=>compressNative('gzip',b) },
+  { id:'deflate', name:'deflate (zlib)', sub:'CompressionStream', run:b=>compressNative('deflate',b) },
+  { id:'deflate-raw', name:'deflate-raw', sub:'без заголовків', run:b=>compressNative('deflate-raw',b) },
+  { id:'brotli', name:'brotli', sub:'якщо підтримує браузер', run:b=>compressNative('brotli',b) },
+  { id:'lzw', name:'LZW', sub:'власна реалізація, 12 біт', run:async b=>lzw(b) },
+  { id:'huff', name:'Хаффман', sub:'статичний, власний, лише розмір', run:null, size:async b=>huffmanSize(b) },
+  { id:'rle', name:'RLE (PackBits)', sub:'власна реалізація', run:async b=>packBits(b) },
 ];
+async function algoSize(a,b){ return a.size ? a.size(b) : (await a.run(b)).length; }
 
 /* ============================================================
    Допоміжне
@@ -461,6 +492,7 @@ const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim
 const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
 const fast=()=>reduced||$('fast').checked;
 const sleep=ms=>new Promise(r=>setTimeout(r,fast()?0:ms));
+const CAP40=QR.capacity(40,'L');
 let runId=0;
 function animate(ms, draw, alive){ return new Promise(res=>{ if (fast()){ draw(1); return res(); }
   const t0=performance.now(); const tick=now=>{ if (!alive()) return res(); const t=Math.min(1,(now-t0)/ms); draw(t); if (t<1) requestAnimationFrame(tick); else res(); }; requestAnimationFrame(tick); }); }
@@ -469,36 +501,44 @@ function countUp(el, to, ms=700, fmt=fmtInt, alive=()=>true){ const from=parseIn
 function setNav(step, state){ document.querySelectorAll('.rail a').forEach(a=>{ const n=+a.dataset.nav; a.classList.toggle('done', n<step || (n===step&&state==='done')); a.classList.toggle('active', n===step&&state!=='done'); }); }
 function openStep(n){ const s=$('s'+n); s.classList.add('on'); setNav(n,'active'); if (n>1) s.scrollIntoView({behavior:fast()?'auto':'smooth',block:'start'}); }
 function hexToRgb(h){ h=h.replace('#',''); if (h.length===3) h=h.split('').map(c=>c+c).join(''); const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255]; }
+const perQrMs=n=>Math.max(220,Math.min(1400,4500/n)); // загальний бюджет анімації на крок ≈ 4,5 с
 
 /* ============================================================
    Крок 1: зображення
    ============================================================ */
-const state={ image:null, qrs:[], stream:null, results:null };
+const state={ source:{kind:'default'}, image:null, pre:null, payload:null, qrs:[], stream:null, results:null };
 
 function drawTryzub(ctx){
   const g='#FFD500', b='#0057B7';
   ctx.fillStyle=b; ctx.fillRect(0,0,128,128);
   ctx.fillStyle=g; ctx.strokeStyle=g; ctx.lineCap='round'; ctx.lineJoin='round';
-  // бічні зубці: U-подібна дуга
   ctx.lineWidth=10; ctx.beginPath(); ctx.moveTo(30,30); ctx.bezierCurveTo(30,72,38,94,64,96); ctx.bezierCurveTo(90,94,98,72,98,30); ctx.stroke();
-  // гачки на кінцях бічних зубців
   ctx.lineWidth=8; ctx.beginPath(); ctx.moveTo(30,30); ctx.bezierCurveTo(30,19,44,19,45,30); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(98,30); ctx.bezierCurveTo(98,19,84,19,83,30); ctx.stroke();
-  // внутрішні завитки
   ctx.lineWidth=6; ctx.beginPath(); ctx.moveTo(45,30); ctx.bezierCurveTo(46,44,40,56,50,62); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(83,30); ctx.bezierCurveTo(82,44,88,56,78,62); ctx.stroke();
-  // центральний зубець
   ctx.beginPath(); ctx.moveTo(64,6); ctx.lineTo(72,26); ctx.lineTo(69,86); ctx.lineTo(59,86); ctx.lineTo(56,26); ctx.closePath(); ctx.fill();
-  // поперечина
   ctx.lineWidth=7; ctx.beginPath(); ctx.moveTo(44,80); ctx.lineTo(84,80); ctx.stroke();
-  // основа
   ctx.beginPath(); ctx.moveTo(54,96); ctx.lineTo(74,96); ctx.lineTo(70,110); ctx.lineTo(64,120); ctx.lineTo(58,110); ctx.closePath(); ctx.fill();
 }
-function canvasToBytes(cv){ return new Promise(res=>cv.toBlob(async bl=>res(new Uint8Array(await bl.arrayBuffer())),'image/png')); }
-async function loadDefaultImage(){
-  const cv=document.createElement('canvas'); cv.width=cv.height=128; drawTryzub(cv.getContext('2d'));
-  const bytes=await canvasToBytes(cv);
-  showImage({bytes, name:'tryzub.png', format:'PNG', w:128, h:128, canvas:cv});
+function canvasToPng(cv){ return new Promise(res=>cv.toBlob(async bl=>res(new Uint8Array(await bl.arrayBuffer())),'image/png')); }
+function canvasToBmp(cv){ // 24-бітний BMP без стиснення, рядки знизу вгору, вирівняні до 4 байтів
+  const w=cv.width,h=cv.height, px=cv.getContext('2d').getImageData(0,0,w,h).data, rowSize=Math.ceil(w*3/4)*4, size=54+rowSize*h;
+  const b=new Uint8Array(size), dv=new DataView(b.buffer);
+  b[0]=0x42; b[1]=0x4D; dv.setUint32(2,size,true); dv.setUint32(10,54,true); dv.setUint32(14,40,true); dv.setInt32(18,w,true); dv.setInt32(22,h,true);
+  dv.setUint16(26,1,true); dv.setUint16(28,24,true); dv.setUint32(34,rowSize*h,true); dv.setInt32(38,2835,true); dv.setInt32(42,2835,true);
+  for (let y=0;y<h;y++){ const row=54+(h-1-y)*rowSize; for (let x=0;x<w;x++){ const i=(y*w+x)*4; b[row+x*3]=px[i+2]; b[row+x*3+1]=px[i+1]; b[row+x*3+2]=px[i]; } }
+  return b; }
+async function prepareImage(){
+  const fmt=$('fmtSel').value, src=state.source;
+  if (src.kind==='file' && fmt==='raw'){
+    showImage({bytes:src.bytes,name:src.file.name,format:(src.file.name.split('.').pop()||'файл').toUpperCase(),w:src.dims?src.dims.w:0,h:src.dims?src.dims.h:0,url:src.dims?src.url:null}); return; }
+  const cv=document.createElement('canvas'); cv.width=cv.height=128; const ctx=cv.getContext('2d');
+  let base='tryzub';
+  if (src.kind==='file' && src.dims){ const s=Math.min(128/src.dims.w,128/src.dims.h), w=src.dims.w*s, h=src.dims.h*s; ctx.fillStyle='#0057B7'; ctx.fillRect(0,0,128,128); ctx.drawImage(src.dims.im,(128-w)/2,(128-h)/2,w,h); base=src.file.name.replace(/\.[^.]+$/,''); }
+  else drawTryzub(ctx);
+  const useBmp=(fmt==='bmp'); const bytes=useBmp?canvasToBmp(cv):await canvasToPng(cv);
+  showImage({bytes,name:base+(useBmp?'.bmp':'.png'),format:useBmp?'BMP':'PNG',w:128,h:128,canvas:cv});
 }
 function showImage(img){ state.image=img; const frame=$('imgFrame'); frame.innerHTML='';
   if (img.canvas){ const c=document.createElement('canvas'); c.width=img.w; c.height=img.h; c.getContext('2d').drawImage(img.canvas,0,0); frame.appendChild(c); }
@@ -506,27 +546,51 @@ function showImage(img){ state.image=img; const frame=$('imgFrame'); frame.inner
   else { frame.innerHTML='<span class="hint" style="padding:12px;text-align:center">'+img.name+'</span>'; }
   $('imgFormat').textContent=img.format; $('imgDims').textContent=img.w?img.w+' × '+img.h+' px':img.name;
   $('imgBytesKb').textContent=fmtKb(img.bytes.length)+' · '+img.name;
-  countUp($('imgBytes'),img.bytes.length); countUp($('imgBits'),img.bytes.length*8);
+  countUp($('imgBytes'),img.bytes.length); countUp($('imgQrRaw'),Math.max(1,Math.ceil(img.bytes.length/CAP40)));
 }
 async function handleFile(file){ if (!file) return;
-  const ext=(file.name.split('.').pop()||'').toUpperCase(); const buf=new Uint8Array(await file.arrayBuffer());
-  const url=URL.createObjectURL(file);
+  const bytes=new Uint8Array(await file.arrayBuffer()); const url=URL.createObjectURL(file);
   const dims=await new Promise(res=>{ const im=new Image(); im.onload=()=>res({w:im.naturalWidth,h:im.naturalHeight,im}); im.onerror=()=>res(null); im.src=url; });
-  if ($('resize128').checked && dims){ const cv=document.createElement('canvas'); cv.width=cv.height=128; const ctx=cv.getContext('2d');
-    const s=Math.min(128/dims.w,128/dims.h), w=dims.w*s, h=dims.h*s; ctx.fillStyle='#0057B7'; ctx.fillRect(0,0,128,128); ctx.drawImage(dims.im,(128-w)/2,(128-h)/2,w,h);
-    const bytes=await canvasToBytes(cv); showImage({bytes,name:file.name.replace(/\.[^.]+$/,'')+'-128.png',format:'PNG',w:128,h:128,canvas:cv}); }
-  else showImage({bytes:buf,name:file.name,format:ext||'файл',w:dims?dims.w:0,h:dims?dims.h:0,url:dims?url:null});
-  if (buf.length>2953*40 && !$('resize128').checked){ $('imgHint').innerHTML='<span class="error">Файл завеликий для показу: понад 40 QR-кодів. Увімкніть «Перемалювати у PNG 128×128» або оберіть менший файл.</span>'; return; }
-  $('imgHint').textContent='Кодуємо байти файлу як є.';
-  runPipeline(2);
+  state.source={kind:'file',file,bytes,url,dims};
+  if ($('fmtSel').value!=='raw' && !dims) $('fmtSel').value='raw'; // не картинка: перемалювати не вийде
+  if ($('fmtSel').value==='raw' && bytes.length>CAP40*40){ $('imgHint').innerHTML='<span class="error">Файл завеликий для показу: понад 40 QR-кодів навіть без стиснення. Оберіть «BMP 128×128» або «PNG 128×128» чи менший файл.</span>'; }
+  else $('imgHint').textContent='Кодуємо байти файлу як є.';
+  runPipeline(1);
 }
 
 /* ============================================================
-   Крок 2: QR-коди
+   Крок 2: стискаємо файл перед QR
+   ============================================================ */
+async function step2(alive){
+  openStep(2); const img=state.image.bytes; const chart=$('preChart'); chart.innerHTML=''; $('preState').innerHTML='<span class="spin"></span> рахуємо…';
+  const rows=[]; for (const a of ALGOS){ const r={algo:a}; try { r.bytes=a.run?await a.run(img):null; r.size=r.bytes?r.bytes.length:await algoSize(a,img); } catch(e){ r.size=null; r.err='не підтримується'; } rows.push(r); if (!alive()) return; }
+  const usable=rows.filter(r=>r.bytes); // лише ті, що дають реальні байти
+  const sel=$('algoSel').value; let chosen=null;
+  if (sel==='auto'){ chosen=usable.reduce((b,r)=>r.size<b.size?r:b,usable[0]); if (!chosen||chosen.size>=img.length) chosen=null; }
+  else if (sel!=='none'){ chosen=usable.find(r=>r.algo.id===sel)||null; }
+  const payload=chosen?chosen.bytes:img;
+  state.pre={rows,chosen}; state.payload={bytes:payload,name:chosen?chosen.algo.name:'без стиснення'};
+  $('preState').textContent=chosen?'Обрано '+chosen.algo.name:(sel==='auto'?'Жоден алгоритм не зменшив файл, беремо як є':'Беремо файл як є');
+  const maxV=Math.max(img.length,...rows.map(r=>r.size||0));
+  const row=(lbl,sub,val,cls,isChosen)=>{ const d=document.createElement('div'); d.className='bar-row'+(isChosen?' chosen':'');
+    d.innerHTML='<div class="lbl">'+lbl+'<small>'+sub+'</small></div><div class="track"><span class="marker" style="left:'+(img.length/maxV*100)+'%"></span><div class="fill '+cls+'" style="width:0"></div></div><div class="val">'+(val==null?'—':'<b>'+fmtInt(val)+'</b> Б')+'</div>';
+    d.title=val==null?'Алгоритм недоступний у цьому браузері':lbl+': '+fmtInt(val)+' байт ('+pct(val,img.length)+' від файлу)'; chart.appendChild(d); return [d.querySelector('.fill'),val==null?maxV*0.02:val]; };
+  const fills=[row('Файл як є','без стиснення',img.length,'ref',!chosen)];
+  rows.forEach(r=>fills.push(row(r.algo.name,r.err||(r.bytes?r.algo.sub:r.algo.sub),r.size,r.size==null?'na':(chosen&&r===chosen?'ok':''),chosen&&r===chosen)));
+  await sleep(50); fills.forEach(([f,v],i)=>setTimeout(()=>{ f.style.width=(v/maxV*100)+'%'; },fast()?0:i*110));
+  countUp($('preIn'),img.length,700,fmtInt,alive); countUp($('preOut'),payload.length,900,fmtInt,alive); $('preAlgo').textContent=state.payload.name;
+  $('preRatio').dataset.v=0; await animate(900,t=>{ $('preRatio').textContent='×'+(payload.length/img.length*t).toFixed(3).replace('.',','); },alive);
+  const qrRaw=Math.max(1,Math.ceil(img.length/CAP40)), qrNow=Math.max(1,Math.ceil(payload.length/CAP40));
+  countUp($('preQr'),qrNow,600,fmtInt,alive); $('preQrWas').textContent=qrNow<qrRaw?'замість '+qrRaw+' без стиснення (версія 40)':'стільки ж, скільки без стиснення';
+  await sleep(fast()?0:fills.length*110+400); setNav(2,'done');
+}
+
+/* ============================================================
+   Крок 3: QR-коди
    ============================================================ */
 function chooseVersion(len){ const sel=$('verSel').value; if (sel!=='auto') return +sel;
-  const n=Math.max(1,Math.ceil(len/QR.capacity(40,'L'))); for (let v=1;v<=40;v++) if (QR.capacity(v,'L')*n>=len) return v; return 40; }
-function makeLayers(q){ // шари 1 px на модуль: дані, службові (звичайні), службові (кольорові)
+  const n=Math.max(1,Math.ceil(len/CAP40)); for (let v=1;v<=40;v++) if (QR.capacity(v,'L')*n>=len) return v; return 40; }
+function makeLayers(q){ // шари 1 px на модуль: дані, службові (звичайні), службові (кольорові), прочитані
   const S=q.size, dark=hexToRgb(css('--qr-dark')), light=[255,255,255];
   const tc={1:hexToRgb(css('--ft-finder')),2:hexToRgb(css('--ft-sep')),3:hexToRgb(css('--ft-timing')),4:hexToRgb(css('--ft-align')),5:hexToRgb(css('--ft-format')),6:hexToRgb(css('--ft-version')),7:hexToRgb(css('--ft-dark'))};
   const mk=()=>{ const c=document.createElement('canvas'); c.width=c.height=S; return c; };
@@ -536,55 +600,55 @@ function makeLayers(q){ // шари 1 px на модуль: дані, служб
     if (q.isFunc[i]){ fI.data.set([m[0],m[1],m[2],255],p); const col=tc[q.ftype[i]]; const mix=q.modules[i]?col:[Math.round((col[0]+255*2)/3),Math.round((col[1]+255*2)/3),Math.round((col[2]+255*2)/3)]; cI.data.set([mix[0],mix[1],mix[2],255],p); }
     else { dI.data.set([m[0],m[1],m[2],255],p); } }
   dataC.getContext('2d').putImageData(dI,0,0); funcC.getContext('2d').putImageData(fI,0,0); colC.getContext('2d').putImageData(cI,0,0);
-  q.layers={dataC,funcC,colC,readC,dI};
+  q.layers={dataC,funcC,colC,readC};
 }
-function qrCard(q, i, grid){ const card=document.createElement('div'); card.className='qr-card'; const cv=document.createElement('canvas'); cv.width=cv.height=q.size*4; cv.style.animationDelay=(i*80)+'ms';
+function qrCard(q, i, grid){ const card=document.createElement('div'); card.className='qr-card'; const cv=document.createElement('canvas'); cv.width=cv.height=q.size*q.scale; cv.style.animationDelay=(Math.min(i,12)*60)+'ms';
   const cap=document.createElement('div'); cap.className='cap'; card.append(cv,cap); grid.appendChild(card); const ctx=cv.getContext('2d'); ctx.imageSmoothingEnabled=false; return {card,cv,ctx,cap}; }
-function paint(ctx, q, {dataFrac=1, funcMode='plain', funcAlpha=1, readLayer=false}={}){ const S=q.size, s=4; ctx.clearRect(0,0,S*s,S*s); ctx.fillStyle='#fff'; ctx.fillRect(0,0,S*s,S*s);
+function paint(ctx, q, {dataFrac=1, funcMode='plain', funcAlpha=1, readLayer=false}={}){ const S=q.size, s=q.scale; ctx.clearRect(0,0,S*s,S*s); ctx.fillStyle='#fff'; ctx.fillRect(0,0,S*s,S*s);
   ctx.imageSmoothingEnabled=false;
   if (dataFrac>=1) ctx.drawImage(q.layers.dataC,0,0,S*s,S*s);
   else { const dark=hexToRgb(css('--qr-dark')); const n=Math.floor(q.order.length*dataFrac); ctx.fillStyle='rgb('+dark.join(',')+')';
     for (let k=0;k<n;k++){ const idx=q.order[k]; if (!q.modules[idx]) continue; const x=idx%S, y=(idx-x)/S; ctx.fillRect(x*s,y*s,s,s); } }
   if (funcAlpha>0){ ctx.globalAlpha=funcAlpha; ctx.drawImage(funcMode==='color'?q.layers.colC:q.layers.funcC,0,0,S*s,S*s); ctx.globalAlpha=1; }
   if (readLayer){ ctx.drawImage(q.layers.readC,0,0,S*s,S*s); } }
+function gridMode(grid,n){ grid.classList.toggle('many',n>6); }
 
-async function step2(alive){
-  openStep(2); const img=state.image; const grid=$('qrGrid'); grid.innerHTML='';
-  const v=chooseVersion(img.bytes.length), cap=QR.capacity(v,'L'); const n=Math.max(1,Math.ceil(img.bytes.length/cap));
-  $('capHint').textContent='Версія '+v+' (L): '+fmtInt(cap)+' байт на код, '+(v*4+17)+'×'+(v*4+17)+' модулів';
-  const qrs=[]; for (let i=0;i<n;i++){ const chunk=img.bytes.subarray(i*cap,Math.min((i+1)*cap,img.bytes.length)); const q=QR.encode(chunk,v,'L'); q.index=i; makeLayers(q); qrs.push(q); if (!alive()) return; await sleep(0); }
-  state.qrs=qrs;
-  $('qrVer').textContent='версія '+v+', рівень L, маски '+qrs.map(q=>q.mask).join(', ');
-  countUp($('qrCount'),n,500); countUp($('qrCap'),cap,600); countUp($('qrModules'),n*(v*4+17)**2,800); $('qrSide').textContent=n+' × '+(v*4+17)+'×'+(v*4+17);
-  $('qrFill').dataset.v=0; await animate(600,t=>{ $('qrFill').textContent=(img.bytes.length/(n*cap)*100*t).toFixed(1).replace('.',',')+' %'; },alive);
-  const cards=qrs.map((q,i)=>{ const c=qrCard(q,i,grid); c.cap.innerHTML='<b>QR '+(i+1)+' з '+n+'</b> · '+fmtInt(q.payloadBytes)+' байт даних · '+fmtInt(q.dataCodewords)+' кодових слів + '+fmtInt(q.totalCodewords-q.dataCodewords)+' EC'; return c; });
-  for (let i=0;i<qrs.length;i++){ const q=qrs[i], c=cards[i]; paint(c.ctx,q,{dataFrac:0}); await sleep(120);
-    await animate(Math.min(1400,900+q.size*3), t=>paint(c.ctx,q,{dataFrac:t}), alive); if (!alive()) return; }
-  setNav(2,'done');
-}
-
-/* ============================================================
-   Крок 3: прибираємо службові шаблони
-   ============================================================ */
 async function step3(alive){
-  openStep(3); const grid=$('stripGrid'); grid.innerHTML=''; const qrs=state.qrs;
-  const all=qrs.reduce((a,q)=>a+q.size*q.size,0), func=qrs.reduce((a,q)=>a+q.isFunc.reduce((x,y)=>x+y,0),0), data=all-func;
-  const cards=qrs.map((q,i)=>qrCard(q,i,grid));
-  cards.forEach((c,i)=>{ paint(c.ctx,qrs[i],{}); c.cap.innerHTML='<b>QR '+(i+1)+'</b> · службових модулів: '+fmtInt(qrs[i].isFunc.reduce((x,y)=>x+y,0)); });
-  await sleep(300);
-  // підсвічуємо кольором
-  await animate(700, t=>cards.forEach((c,i)=>{ paint(c.ctx,qrs[i],{}); c.ctx.globalAlpha=t; c.ctx.drawImage(qrs[i].layers.colC,0,0,qrs[i].size*4,qrs[i].size*4); c.ctx.globalAlpha=1; }), alive); if (!alive()) return;
-  countUp($('stAll'),all,700,fmtInt,alive); countUp($('stFunc'),func,700,fmtInt,alive); $('stFuncPct').textContent=pct(func,all)+' площі';
-  await sleep(700);
-  // розчиняємо
-  await animate(1100, t=>cards.forEach((c,i)=>paint(c.ctx,qrs[i],{funcMode:'color',funcAlpha:1-t})), alive); if (!alive()) return;
-  countUp($('stData'),data,700,fmtInt,alive); const cw=qrs.reduce((a,q)=>a+q.totalCodewords*8,0); $('stDataSplit').textContent=fmtInt(cw)+' бітів кодових слів + '+fmtInt(data-cw)+' залишкових';
-  cards.forEach((c,i)=>{ c.cap.innerHTML='<b>QR '+(i+1)+'</b> · лишилось '+fmtInt(qrs[i].order.length)+' модулів даних'; });
+  openStep(3); const data=state.payload.bytes; const grid=$('qrGrid'); grid.innerHTML='';
+  const v=chooseVersion(data.length), cap=QR.capacity(v,'L'); const n=Math.max(1,Math.ceil(data.length/cap)); gridMode(grid,n);
+  $('capHint').textContent='Версія '+v+' (L): '+fmtInt(cap)+' байт на код, '+(v*4+17)+'×'+(v*4+17)+' модулів';
+  const qrs=[]; for (let i=0;i<n;i++){ const chunk=data.subarray(i*cap,Math.min((i+1)*cap,data.length)); const q=QR.encode(chunk,v,'L'); q.index=i; q.scale=n>6?2:4; makeLayers(q); qrs.push(q); if (!alive()) return; await sleep(0); }
+  state.qrs=qrs;
+  $('qrVer').textContent='версія '+v+', рівень L, '+state.payload.name;
+  countUp($('qrCount'),n,500); countUp($('qrCap'),cap,600); countUp($('qrModules'),n*(v*4+17)**2,800); $('qrSide').textContent=n+' × '+(v*4+17)+'×'+(v*4+17);
+  $('qrFill').dataset.v=0; await animate(600,t=>{ $('qrFill').textContent=(data.length/(n*cap)*100*t).toFixed(1).replace('.',',')+' %'; },alive);
+  const cards=qrs.map((q,i)=>{ const c=qrCard(q,i,grid); c.cap.innerHTML='<b>QR '+(i+1)+' з '+n+'</b> · '+fmtInt(q.payloadBytes)+' байт · '+fmtInt(q.dataCodewords)+' кодових слів + '+fmtInt(q.totalCodewords-q.dataCodewords)+' EC'; return c; });
+  const ms=perQrMs(n);
+  for (let i=0;i<qrs.length;i++){ const q=qrs[i], c=cards[i]; paint(c.ctx,q,{dataFrac:0}); await sleep(Math.min(120,ms/4));
+    await animate(ms, t=>paint(c.ctx,q,{dataFrac:t}), alive); if (!alive()) return; }
   setNav(3,'done');
 }
 
 /* ============================================================
-   Крок 4: потік бітів
+   Крок 4: прибираємо службові шаблони
+   ============================================================ */
+async function step4(alive){
+  openStep(4); const grid=$('stripGrid'); grid.innerHTML=''; const qrs=state.qrs; gridMode(grid,qrs.length);
+  const all=qrs.reduce((a,q)=>a+q.size*q.size,0), func=qrs.reduce((a,q)=>a+q.isFunc.reduce((x,y)=>x+y,0),0), data=all-func;
+  const cards=qrs.map((q,i)=>qrCard(q,i,grid));
+  cards.forEach((c,i)=>{ paint(c.ctx,qrs[i],{}); c.cap.innerHTML='<b>QR '+(i+1)+'</b> · службових модулів: '+fmtInt(qrs[i].isFunc.reduce((x,y)=>x+y,0)); });
+  await sleep(300);
+  await animate(700, t=>cards.forEach((c,i)=>{ paint(c.ctx,qrs[i],{}); c.ctx.globalAlpha=t; c.ctx.drawImage(qrs[i].layers.colC,0,0,qrs[i].size*qrs[i].scale,qrs[i].size*qrs[i].scale); c.ctx.globalAlpha=1; }), alive); if (!alive()) return;
+  countUp($('stAll'),all,700,fmtInt,alive); countUp($('stFunc'),func,700,fmtInt,alive); $('stFuncPct').textContent=pct(func,all)+' площі';
+  await sleep(700);
+  await animate(1100, t=>cards.forEach((c,i)=>paint(c.ctx,qrs[i],{funcMode:'color',funcAlpha:1-t})), alive); if (!alive()) return;
+  countUp($('stData'),data,700,fmtInt,alive); const cw=qrs.reduce((a,q)=>a+q.totalCodewords*8,0); $('stDataSplit').textContent=fmtInt(cw)+' бітів кодових слів + '+fmtInt(data-cw)+' залишкових';
+  cards.forEach((c,i)=>{ c.cap.innerHTML='<b>QR '+(i+1)+'</b> · лишилось '+fmtInt(qrs[i].order.length)+' модулів даних'; });
+  setNav(4,'done');
+}
+
+/* ============================================================
+   Крок 5: потік бітів
    ============================================================ */
 function buildStream(){ const unmask=$('unmask').checked, withEcc=$('withEcc').checked; let total=0; const per=[];
   for (const q of state.qrs){ const lim=withEcc?q.order.length:q.dataCodewords*8; per.push(lim); total+=lim; }
@@ -595,96 +659,107 @@ function buildStream(){ const unmask=$('unmask').checked, withEcc=$('withEcc').c
   let text=''; const chunk=8192; for (let i=0;i<total;i+=chunk){ text+=Array.from(bits.subarray(i,Math.min(total,i+chunk))).join(''); }
   state.stream={bits,packed,text:new TextEncoder().encode(text),textStr:text,per};
 }
-async function step4(alive){
-  openStep(4); buildStream(); const grid=$('readGrid'); grid.innerHTML=''; const qrs=state.qrs; const tick=$('ticker'); tick.textContent='';
+async function step5(alive){
+  openStep(5); buildStream(); const grid=$('readGrid'); grid.innerHTML=''; const qrs=state.qrs; gridMode(grid,qrs.length); const tick=$('ticker'); tick.textContent='';
   const readCol=hexToRgb(css('--read')); const cards=qrs.map((q,i)=>qrCard(q,i,grid));
   cards.forEach((c,i)=>{ paint(c.ctx,qrs[i],{funcAlpha:0}); c.cap.innerHTML='<b>QR '+(i+1)+'</b> · очікує'; });
-  const s=state.stream; let offset=0; const fastMode=fast();
-  for (let i=0;i<qrs.length;i++){ const q=qrs[i], c=cards[i], lim=s.per[i], S=q.size; const rctx=q.layers.readC.getContext('2d'); rctx.clearRect(0,0,S,S);
+  const s=state.stream; let offset=0; const ms=perQrMs(qrs.length);
+  for (let i=0;i<qrs.length;i++){ const q=qrs[i], c=cards[i], lim=s.per[i], S=q.size, sc=q.scale; const rctx=q.layers.readC.getContext('2d'); rctx.clearRect(0,0,S,S);
     const rI=rctx.createImageData(S,S); let done=0; const base=offset;
-    await animate(1600, t=>{ const n=Math.floor(lim*t); for (;done<n;done++){ const idx=q.order[done]; rI.data.set([readCol[0],readCol[1],readCol[2],110],idx*4); }
+    await animate(ms, t=>{ const n=Math.floor(lim*t); for (;done<n;done++){ const idx=q.order[done]; rI.data.set([readCol[0],readCol[1],readCol[2],110],idx*4); }
       rctx.putImageData(rI,0,0); paint(c.ctx,q,{funcAlpha:0,readLayer:true});
-      if (n<lim && n>0){ const idx=q.order[n]; const x=idx%S,y=(idx-x)/S; c.ctx.fillStyle='rgb('+readCol.join(',')+')'; c.ctx.fillRect(x*4-2,y*4-2,8,8); }
+      if (n<lim && n>0){ const idx=q.order[n]; const x=idx%S,y=(idx-x)/S; c.ctx.fillStyle='rgb('+readCol.join(',')+')'; c.ctx.fillRect(x*sc-sc/2,y*sc-sc/2,sc*2,sc*2); }
       const end=base+n, start=Math.max(0,end-600); tick.innerHTML=s.textStr.slice(start,end)+'<span class="cur">'+(end<s.bits.length?s.textStr[end]:'')+'</span>';
-      c.cap.innerHTML='<b>QR '+(i+1)+'</b> · зчитано '+fmtInt(n)+' з '+fmtInt(lim)+' бітів'; }, alive); if (!alive()) return;
+      c.cap.innerHTML='<b>QR '+(i+1)+'</b> · '+fmtInt(n)+' з '+fmtInt(lim)+' бітів'; }, alive); if (!alive()) return;
     offset+=lim; }
   tick.innerHTML=s.textStr.slice(Math.max(0,s.bits.length-600));
-  countUp($('bits'),s.bits.length,700,fmtInt,alive); $('bitsPerQr').textContent=s.per.map(fmtInt).join(' + ');
+  countUp($('bits'),s.bits.length,700,fmtInt,alive); $('bitsPerQr').textContent=qrs.length<=6?s.per.map(fmtInt).join(' + '):qrs.length+' × '+fmtInt(s.per[0]);
   countUp($('packed'),s.packed.length,700,fmtInt,alive); countUp($('txt'),s.text.length,700,fmtInt,alive);
   $('bitsDump').textContent=s.textStr.slice(0,2048).replace(/(.{64})/g,'$1\n')+(s.bits.length>2048?'\n…':'');
-  setNav(4,'done');
+  setNav(5,'done');
 }
 
 /* ============================================================
-   Крок 5: стиснення
+   Крок 6: повторне стиснення потоку
    ============================================================ */
-async function step5(alive){
-  openStep(5); const chart=$('chart'); chart.innerHTML=''; const tb=$('zipTable').querySelector('tbody'); tb.innerHTML=''; $('zipState').innerHTML='<span class="spin"></span> рахуємо…';
-  const s=state.stream, img=state.image.bytes; const res=[];
-  for (const a of ALGOS){ const r={...a}; try { const t0=performance.now(); r.packed=await a.run(s.packed); r.text=await a.run(s.text); r.img=await a.run(img); r.ms=performance.now()-t0; }
+async function step6(alive){
+  openStep(6); const chart=$('chart'); chart.innerHTML=''; const tb=$('zipTable').querySelector('tbody'); tb.innerHTML=''; $('zipState').innerHTML='<span class="spin"></span> рахуємо…';
+  const s=state.stream, img=state.image.bytes, pay=state.payload.bytes; const res=[];
+  for (const a of ALGOS){ const r={...a}; try { r.packed=await algoSize(a,s.packed); r.text=await algoSize(a,s.text); r.img=await algoSize(a,img); }
     catch(e){ r.packed=r.text=r.img=null; r.err='не підтримується'; } res.push(r); if (!alive()) return; }
   state.results=res; $('zipState').textContent='';
-  const ok=res.filter(r=>r.packed!=null); const maxV=Math.max(img.length,s.packed.length,...ok.map(r=>r.packed)); const refPct=img.length/maxV*100;
+  const ok=res.filter(r=>r.packed!=null); const maxV=Math.max(pay.length,s.packed.length,...ok.map(r=>r.packed)); const refPct=pay.length/maxV*100;
   const row=(lbl,sub,val,cls,withMarker)=>{ const d=document.createElement('div'); d.className='bar-row';
     d.innerHTML='<div class="lbl">'+lbl+'<small>'+sub+'</small></div><div class="track">'+(withMarker?'<span class="marker" style="left:'+refPct+'%"></span>':'')+'<div class="fill '+cls+'" style="width:0"></div></div><div class="val">'+(val==null?'—':'<b>'+fmtInt(val)+'</b> Б')+'</div>';
-    d.title=val==null?'Алгоритм недоступний у цьому браузері':lbl+': '+fmtInt(val)+' байт ('+pct(val,img.length)+' від вихідного файлу)'; chart.appendChild(d); return d.querySelector('.fill'); };
+    d.title=val==null?'Алгоритм недоступний у цьому браузері':lbl+': '+fmtInt(val)+' байт ('+pct(val,pay.length)+' від даних у QR)'; chart.appendChild(d); return d.querySelector('.fill'); };
   const fills=[];
-  fills.push([row('Вихідний файл','без змін',img.length,'ref',false),img.length]);
+  fills.push([row('Дані в QR',state.payload.name,pay.length,'ref',false),pay.length]);
   fills.push([row('Потік QR-бітів','без стиснення',s.packed.length,'',true),s.packed.length]);
   res.forEach(r=>fills.push([row(r.name,r.err||r.sub,r.packed,r.packed==null?'na':'',true),r.packed==null?maxV*0.02:r.packed]));
   await sleep(50); fills.forEach(([f,v],i)=>setTimeout(()=>{ f.style.width=(v/maxV*100)+'%'; },fast()?0:i*110));
   const best=ok.reduce((a,r)=>r.packed<a.packed?r:a,ok[0]);
   res.forEach(r=>{ const tr=document.createElement('tr'); const c=v=>v==null?'—':fmtInt(v);
-    tr.innerHTML='<td>'+r.name+(r.err?' <span class="hint">('+r.err+')</span>':'')+'</td><td'+(r===best?' class="best"':'')+'>'+c(r.packed)+'</td><td>'+(r.packed==null?'—':pct(r.packed,img.length))+'</td><td>'+c(r.text)+'</td><td>'+c(r.img)+'</td>'; tb.appendChild(tr); });
-  await sleep(fast()?0:fills.length*110+600); setNav(5,'done');
+    tr.innerHTML='<td>'+r.name+(r.err?' <span class="hint">('+r.err+')</span>':'')+'</td><td'+(r===best?' class="best"':'')+'>'+c(r.packed)+'</td><td>'+(r.packed==null?'—':pct(r.packed,pay.length))+'</td><td>'+c(r.text)+'</td><td>'+c(r.img)+'</td>'; tb.appendChild(tr); });
+  await sleep(fast()?0:fills.length*110+600); setNav(6,'done');
 }
 
 /* ============================================================
-   Крок 6: підсумок
+   Крок 7: підсумок
    ============================================================ */
-async function step6(alive){
-  openStep(6); const img=state.image.bytes.length, raw=state.stream.packed.length; const ok=state.results.filter(r=>r.packed!=null); const best=ok.reduce((a,r)=>r.packed<a.packed?r:a,ok[0]);
-  countUp($('sumImg'),img,800,fmtInt,alive); countUp($('sumRaw'),raw,800,fmtInt,alive); countUp($('sumBest'),best.packed,900,fmtInt,alive);
-  $('sumRawS').textContent=fmtInt(state.stream.bits.length)+' бітів = '+pct(raw,img)+' від файлу'; $('sumBestS').textContent='байтів, '+best.name;
-  const ratio=best.packed/img; $('sumRatio').dataset.v=0; await animate(900,t=>{ $('sumRatio').textContent='×'+(ratio*t).toFixed(2).replace('.',','); },alive);
-  const n=state.qrs.length;
-  $('flow').innerHTML='<span class="chip">'+fmtInt(img)+' Б файл</span>→<span class="chip">'+n+' QR</span>→<span class="chip">'+fmtInt(state.stream.bits.length)+' бітів</span>→<span class="chip">'+fmtInt(raw)+' Б упаковано</span>→<span class="chip hi">'+fmtInt(best.packed)+' Б після '+best.name+'</span>';
-  const ecc=state.qrs.reduce((a,q)=>a+q.totalCodewords-q.dataCodewords,0), pad=state.qrs.reduce((a,q)=>a+q.dataCodewords,0)-img-state.qrs.length*(state.qrs[0].version<10?2:3);
-  const diff=best.packed-img; const sign=diff>0?'більший':'менший';
-  const txtBest=Math.min(...ok.map(r=>r.text));
-  $('verdict').innerHTML='Після проходу через QR-коди та <b>'+best.name+'</b> потік виходить <b>'+sign+' за вихідний файл на '+fmtInt(Math.abs(diff))+' байт</b> ('+pct(best.packed,img)+'). '+
-    'У потоці, крім самих байтів файлу, сидять '+fmtInt(ecc)+' байт кодів корекції (їх мінімум 7 % навіть на рівні L, і вони виглядають як шум) та '+fmtInt(Math.max(0,pad))+' байт заповнювачів EC 11, які архіватор майже повністю прибирає. '+
-    ($('unmask').checked?'XOR-маску знято, тому архіватор бачить справжні байти.':'XOR-маска не знята, тому дані перемішані з шаблоном маски і стискаються гірше: спробуйте перемкнути прапорець у кроці 4.')+
-    ' Записаний як текст із символів 0 і 1 потік займає '+fmtInt(state.stream.text.length)+' байт, але після стиснення падає до '+fmtInt(txtBest)+' байт: архіватор швидко помічає, що в тексті лише два символи.';
-  setNav(6,'done'); $('runState').textContent='Готово';
+async function step7(alive){
+  openStep(7); const img=state.image.bytes.length, pay=state.payload.bytes.length, raw=state.stream.packed.length;
+  const ok=state.results.filter(r=>r.packed!=null); const best=ok.reduce((a,r)=>r.packed<a.packed?r:a,ok[0]);
+  const n=state.qrs.length, nRaw=Math.max(1,Math.ceil(img/CAP40)), v=state.qrs[0].version;
+  countUp($('sumImg'),img,800,fmtInt,alive); $('sumImgS').textContent='байтів, '+state.image.format;
+  countUp($('sumPay'),pay,900,fmtInt,alive); $('sumPayS').textContent=state.payload.name+', '+pct(pay,img)+' від файлу';
+  countUp($('sumQr'),n,700,fmtInt,alive); $('sumQrS').textContent='версія '+v+(v===40?(n<nRaw?', замість '+nRaw+' без стиснення':', стільки ж без стиснення'):'');
+  countUp($('sumBest'),best.packed,900,fmtInt,alive); $('sumBestS').textContent=best.name+', '+pct(best.packed,pay)+' від даних у QR';
+  $('flow').innerHTML='<span class="chip">'+fmtInt(img)+' Б файл</span>→<span class="chip ok">'+fmtInt(pay)+' Б '+state.payload.name+'</span>→<span class="chip">'+n+' QR</span>→<span class="chip">'+fmtInt(state.stream.bits.length)+' бітів</span>→<span class="chip">'+fmtInt(raw)+' Б упаковано</span>→<span class="chip hi">'+fmtInt(best.packed)+' Б після '+best.name+'</span>';
+  const ecc=state.qrs.reduce((a,q)=>a+q.totalCodewords-q.dataCodewords,0), pad=Math.max(0,state.qrs.reduce((a,q)=>a+q.dataCodewords,0)-pay-n*(v<10?2:3));
+  const gain=img-pay;
+  let t='';
+  if (gain>0) t+='Стиснення до пакування зменшило дані з '+fmtInt(img)+' до <b>'+fmtInt(pay)+' байт</b> ('+state.payload.name+'), тобто у '+(img/pay).toFixed(1).replace('.',',')+' разу. '+(n<nRaw?'Замість '+nRaw+' QR-кодів версії 40 вистачило <b>'+n+'</b>. ':'Кількість QR-кодів від цього не змінилась: '+n+'. ');
+  else t+='Жоден алгоритм не зменшив цей файл: він уже стиснений усередині ('+state.image.format+'), тому в QR пішли <b>вихідні '+fmtInt(img)+' байт</b>. ';
+  t+='Потік модулів даних важить '+fmtInt(raw)+' байт: до корисних даних додались '+fmtInt(ecc)+' байт кодів корекції (мінімум 7 % навіть на рівні L) та '+fmtInt(pad)+' байт заповнювачів EC 11. ';
+  t+='Повторне стиснення потоку дає '+fmtInt(best.packed)+' байт: заповнювачі зникають, а коди корекції та вже стиснені дані не піддаються, бо виглядають як шум. ';
+  t+=($('unmask').checked?'XOR-маску знято, тому архіватор бачить справжні байти.':'XOR-маска не знята, тому дані перемішані з шаблоном маски і стискаються гірше: спробуйте перемкнути прапорець у кроці 5.');
+  t+=' Висновок: стискати потрібно один раз і до QR, а після QR виграти вже нічого.';
+  $('verdict').innerHTML=t;
+  setNav(7,'done'); $('runState').textContent='Готово';
 }
 
 /* ============================================================
    Оркестрація
    ============================================================ */
 async function runPipeline(from=1){ const id=++runId; const alive=()=>id===runId; $('runState').textContent='Виконуємо…';
+  for (let i=Math.max(2,from);i<=7;i++) $('s'+i).classList.remove('on');
   try {
-    if (from<=1){ setNav(1,'active'); if (!state.image) await loadDefaultImage(); await sleep(600); setNav(1,'done'); }
+    if (from<=1){ setNav(1,'active'); await prepareImage(); await sleep(600); setNav(1,'done'); }
     if (from<=2){ await step2(alive); if (!alive()) return; await sleep(500); }
     if (from<=3){ await step3(alive); if (!alive()) return; await sleep(500); }
-    if (from<=4){ await step4(alive); if (!alive()) return; await sleep(400); }
-    if (from<=5){ await step5(alive); if (!alive()) return; await sleep(300); }
-    await step6(alive);
+    if (from<=4){ await step4(alive); if (!alive()) return; await sleep(500); }
+    if (from<=5){ await step5(alive); if (!alive()) return; await sleep(400); }
+    if (from<=6){ await step6(alive); if (!alive()) return; await sleep(300); }
+    await step7(alive);
   } catch(e){ console.error(e); $('runState').textContent='Помилка: '+e.message; }
 }
 (function init(){
   const sel=$('verSel'); sel.innerHTML='<option value="auto">авто (мінімальна, що вміщує)</option>'+Array.from({length:40},(_,i)=>'<option value="'+(40-i)+'">'+(40-i)+' — '+fmtInt(QR.capacity(40-i,'L'))+' Б</option>').join('');
   sel.value='40';
-  $('runAll').addEventListener('click',()=>{ ['s2','s3','s4','s5','s6'].forEach(i=>$(i).classList.remove('on')); runPipeline(1); });
+  const asel=$('algoSel'); ALGOS.filter(a=>a.run).forEach(a=>{ const o=document.createElement('option'); o.value=a.id; o.textContent=a.name; asel.appendChild(o); });
+  const none=document.createElement('option'); none.value='none'; none.textContent='без стиснення (як було)'; asel.appendChild(none);
+  $('runAll').addEventListener('click',()=>runPipeline(1));
   $('fileInput').addEventListener('change',e=>handleFile(e.target.files[0]));
-  $('resetImg').addEventListener('click',async()=>{ $('fileInput').value=''; $('imgHint').textContent='Кодуємо саме байти файлу, а не пікселі: PNG уже стиснений алгоритмом deflate, і це головна інтрига експерименту.'; await loadDefaultImage(); runPipeline(2); });
-  $('verSel').addEventListener('change',()=>{ if (state.image) runPipeline(2); });
-  $('redoQr').addEventListener('click',()=>runPipeline(2));
-  $('redoStrip').addEventListener('click',()=>{ if (state.qrs.length) runPipeline(3); });
-  $('redoRead').addEventListener('click',()=>{ if (state.qrs.length) runPipeline(4); });
-  $('unmask').addEventListener('change',()=>{ if (state.qrs.length) runPipeline(4); });
-  $('withEcc').addEventListener('change',()=>{ if (state.qrs.length) runPipeline(4); });
-  $('redoZip').addEventListener('click',()=>{ if (state.stream) runPipeline(5); });
+  $('fmtSel').addEventListener('change',()=>runPipeline(1));
+  $('resetImg').addEventListener('click',()=>{ $('fileInput').value=''; state.source={kind:'default'}; if ($('fmtSel').value==='raw') $('fmtSel').value='bmp'; $('imgHint').textContent='Кодуємо байти файлу, а не пікселі. BMP зберігає кожен піксель трьома байтами, тому він великий і добре стискається. PNG уже стиснений алгоритмом deflate, тому майже не стискається вдруге.'; runPipeline(1); });
+  $('algoSel').addEventListener('change',()=>{ if (state.image) runPipeline(2); });
+  $('verSel').addEventListener('change',()=>{ if (state.payload) runPipeline(3); });
+  $('redoQr').addEventListener('click',()=>{ if (state.payload) runPipeline(3); });
+  $('redoStrip').addEventListener('click',()=>{ if (state.qrs.length) runPipeline(4); });
+  $('redoRead').addEventListener('click',()=>{ if (state.qrs.length) runPipeline(5); });
+  $('unmask').addEventListener('change',()=>{ if (state.qrs.length) runPipeline(5); });
+  $('withEcc').addEventListener('change',()=>{ if (state.qrs.length) runPipeline(5); });
+  $('redoZip').addEventListener('click',()=>{ if (state.stream) runPipeline(6); });
   document.querySelectorAll('.rail a').forEach(a=>a.addEventListener('click',e=>{ e.preventDefault(); const s=$(a.getAttribute('href').slice(1)); if (s.classList.contains('on')) s.scrollIntoView({behavior:'smooth'}); }));
   document.fonts?.ready.then(()=>runPipeline(1)) ?? runPipeline(1);
 })();
