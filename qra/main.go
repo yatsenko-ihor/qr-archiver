@@ -1,12 +1,12 @@
 package main
 
-// qra — пакує файл зображення в контейнер .qra (deflate + заголовок),
-// рендерить його у QR-коди, читає QR-коди назад і відновлює зображення.
+// qra — пакує будь-який файл у контейнер .qra (deflate + заголовок),
+// рендерить його у QR-коди, читає QR-коди назад і відновлює файл.
 //
-//	qra pack   [-v N] [-no-ecc] <зображення> [out.qra]
+//	qra pack   [-v N] [-no-ecc] <файл> [out.qra]
 //	qra unpack <in.qra> [вихідний-файл]
 //	qra render [-scale 4] [-quiet 4] [-v N] [-no-ecc] <in.qra> <тека>
-//	qra scan   [-no-ecc] <out.qra> <code-0001.png> [code-0002.png …]
+//	qra scan   [-no-ecc] <out.qra> <тека-з-кодами | файли…>
 //	qra info   <in.qra>
 
 import (
@@ -15,7 +15,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -49,12 +48,12 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, `qra — зображення ↔ .qra ↔ QR-коди
+	fmt.Fprintln(os.Stderr, `qra — будь-який файл ↔ .qra ↔ QR-коди
 
-  qra pack   [-v N] [-no-ecc] <зображення> [out.qra]      стиснути файл і зібрати .qra
+  qra pack   [-v N] [-no-ecc] <файл> [out.qra]            стиснути файл і зібрати .qra
   qra unpack <in.qra> [вихідний-файл]                     відновити файл з .qra (перевірка CRC32)
-  qra render [-scale 4] [-quiet 4] [-v N] [-no-ecc] <in.qra> <тека>   нарізати .qra на QR-коди й записати PNG
-  qra scan   [-no-ecc] <out.qra> <code-*.png …>           зчитати корисні байти з PNG і зібрати .qra
+  qra render [-scale 4] [-quiet 4] [-v N] [-no-ecc] <in.qra> <тека>   нарізати .qra на QR-коди й записати їх як PNG
+  qra scan   [-no-ecc] <out.qra> <тека | файли…>          зчитати коди (PNG/JPEG/GIF) і зібрати .qra
   qra info   <in.qra>                                     показати заголовок`)
 }
 
@@ -79,7 +78,7 @@ func cmdPack(args []string) error {
 	noEcc := fs.Bool("no-ecc", false, "нестандартні коди без корекції (3 703 Б на код версії 40 замість 2 953)")
 	fs.Parse(args)
 	if fs.NArg() < 1 {
-		return fmt.Errorf("вкажіть файл зображення")
+		return fmt.Errorf("вкажіть файл для пакування")
 	}
 	src := fs.Arg(0)
 	out := fs.Arg(1)
@@ -217,7 +216,7 @@ func cmdRender(args []string) error {
 		go func(i int, c *Code) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			errs[i] = WritePNG(filepath.Join(dir, fmt.Sprintf("code-%04d.png", i+1)), RenderPNG(c, *scale, *quiet))
+			errs[i] = WritePNG(filepath.Join(dir, codeFileName(i+1)), RenderPNG(c, *scale, *quiet))
 		}(i, c)
 	}
 	wg.Wait()
@@ -236,7 +235,7 @@ func cmdRender(args []string) error {
 	}
 	fmt.Printf("QR-кодів:    %d, версія %d (%d×%d модулів), %s\n", len(codes), v, codes[0].Size, codes[0].Size, kind)
 	fmt.Printf("Корисних:    %s у кодах, %s кодів корекції поза потоком\n", human(len(data)), human(ecc))
-	fmt.Printf("Записано:    %s/code-0001.png … code-%04d.png, %d px на модуль\n", dir, len(codes), *scale)
+	fmt.Printf("Записано:    %s/%s … %s, %d px на модуль\n", dir, codeFileName(1), codeFileName(len(codes)), *scale)
 	fmt.Printf("Час:         кодування %v на %d потоках, разом із PNG %v\n", tEnc.Round(time.Millisecond), runtime.GOMAXPROCS(0), time.Since(t0).Round(time.Millisecond))
 	return nil
 }
@@ -246,11 +245,16 @@ func cmdScan(args []string) error {
 	noEcc := fs.Bool("no-ecc", false, "коди згенеровано без корекції")
 	fs.Parse(args)
 	if fs.NArg() < 2 {
-		return fmt.Errorf("вкажіть <out.qra> і хоча б один PNG")
+		return fmt.Errorf("вкажіть <out.qra> і теку з кодами або файли кодів")
 	}
 	out := fs.Arg(0)
-	files := append([]string(nil), fs.Args()[1:]...)
-	sort.Strings(files)
+	files, err := ExpandCodeFiles(fs.Args()[1:])
+	if err != nil {
+		return err
+	}
+	if len(files) == 0 {
+		return fmt.Errorf("не знайдено жодного зображення коду")
+	}
 	t0 := time.Now()
 	payloads := make([][]byte, len(files))
 	errs := make([]error, len(files))
@@ -264,7 +268,7 @@ func cmdScan(args []string) error {
 		go func(i int, f string) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			m, size, err := ReadMatrixPNG(f)
+			m, size, err := ReadMatrixImage(f)
 			if err != nil {
 				errs[i] = err
 				return

@@ -93,9 +93,8 @@ func TestCommandsRoundTrip(t *testing.T) {
 		if len(files) == 0 {
 			t.Fatal("render не створив PNG")
 		}
-		sort.Strings(files)
 		scanned := filepath.Join(dir, "scanned.qra")
-		scanArgs := append([]string{scanned}, files...)
+		scanArgs := []string{scanned, codes} // тека, а не перелік файлів
 		if noEcc {
 			scanArgs = append([]string{"-no-ecc"}, scanArgs...)
 		}
@@ -154,10 +153,8 @@ func TestAnyFileNotJustImages(t *testing.T) {
 		if err := cmdRender([]string{qra, codes}); err != nil {
 			t.Fatalf("%s: render: %v", name, err)
 		}
-		files, _ := filepath.Glob(filepath.Join(codes, "code-*.png"))
-		sort.Strings(files)
 		scanned := filepath.Join(dir, name+".scanned.qra")
-		if err := cmdScan(append([]string{scanned}, files...)); err != nil {
+		if err := cmdScan([]string{scanned, codes}); err != nil {
 			t.Fatalf("%s: scan: %v", name, err)
 		}
 		out := filepath.Join(dir, name+".restored")
@@ -182,6 +179,38 @@ func mustRead(t *testing.T, p string) []byte {
 		t.Fatal(err)
 	}
 	return b
+}
+
+func TestNaturalLessAndExpand(t *testing.T) {
+	if !naturalLess("code-2.png", "code-10.png") || naturalLess("code-10.png", "code-2.png") || naturalLess("a", "a") || !naturalLess("a", "ab") || !naturalLess("code-000001.png", "code-000002.png") {
+		t.Fatal("naturalLess")
+	}
+	dir := t.TempDir()
+	for _, n := range []string{"code-10.png", "code-2.png", "code-1.png", "readme.txt", "x.JPG"} {
+		os.WriteFile(filepath.Join(dir, n), []byte{0}, 0o644)
+	}
+	files, err := ExpandCodeFiles([]string{dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, f := range files {
+		names = append(names, filepath.Base(f))
+	}
+	if strings.Join(names, ",") != "code-1.png,code-2.png,code-10.png,x.JPG" {
+		t.Fatalf("розгортання теки: %v", names)
+	}
+	// файли передаються як є, тека і файл можна змішувати
+	files, _ = ExpandCodeFiles([]string{filepath.Join(dir, "readme.txt"), dir})
+	if len(files) != 5 || filepath.Base(files[0]) != "code-1.png" {
+		t.Fatalf("змішані аргументи: %v", files)
+	}
+	if _, err := ExpandCodeFiles([]string{filepath.Join(dir, "нема")}); err == nil {
+		t.Fatal("неіснуючий шлях")
+	}
+	if codeFileName(7) != "code-000007.png" || codeFileName(123456) != "code-123456.png" {
+		t.Fatal("codeFileName")
+	}
 }
 
 func TestCommandsErrors(t *testing.T) {
@@ -210,7 +239,12 @@ func TestCommandsErrors(t *testing.T) {
 		t.Error("render сміття")
 	}
 	if err := cmdScan([]string{filepath.Join(dir, "o.qra")}); err == nil {
-		t.Error("scan без PNG")
+		t.Error("scan без кодів")
+	}
+	empty := filepath.Join(dir, "empty")
+	os.Mkdir(empty, 0o755)
+	if err := cmdScan([]string{filepath.Join(dir, "o.qra"), empty}); err == nil {
+		t.Error("scan порожньої теки")
 	}
 	if err := cmdScan([]string{filepath.Join(dir, "o.qra"), filepath.Join(dir, "нема.png")}); err == nil {
 		t.Error("scan неіснуючого PNG")

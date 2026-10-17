@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Інтерактивний прогін: питає шлях до файлу, пакує його у .qra, рендерить QR-коди,
+# Інтерактивний прогін: питає шлях до будь-якого файлу, пакує його у .qra, рендерить QR-коди,
 # сканує їх назад, розпаковує і звіряє з оригіналом байт у байт.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -8,7 +8,7 @@ cd "$(dirname "$0")"
 
 SRC="${1:-}"
 if [[ -z "$SRC" ]]; then
-  read -r -e -p "Шлях до файлу зображення: " SRC
+  read -r -e -p "Шлях до файлу (будь-якого: зображення, архів, текст): " SRC
 fi
 SRC="${SRC/#\~/$HOME}"
 if [[ ! -f "$SRC" ]]; then
@@ -22,17 +22,17 @@ read -r -p "Нестандартні коди без корекції (+25 % м�
 
 BASE="$(basename "$SRC")"
 OUT="${SRC}.qra-out"
+rm -rf "$OUT/codes"
 mkdir -p "$OUT/codes"
-rm -f "$OUT"/codes/*.png
 
 echo; echo "== 1. Пакуємо у .qra"
 ./qra pack $NOECC "$SRC" "$OUT/$BASE.qra"
 
-echo; echo "== 2. Нарізаємо на QR-коди (PNG)"
+echo; echo "== 2. Нарізаємо на QR-коди"
 ./qra render "$OUT/$BASE.qra" "$OUT/codes"
 
-echo; echo "== 3. Скануємо PNG назад у .qra"
-./qra scan $NOECC "$OUT/scanned.qra" "$OUT"/codes/*.png
+echo; echo "== 3. Скануємо коди назад у .qra"
+./qra scan $NOECC "$OUT/scanned.qra" "$OUT/codes"
 
 echo; echo "== 4. Розпаковуємо"
 EXT="${BASE##*.}"
@@ -47,4 +47,4 @@ else
   exit 1
 fi
 echo "Результати: $OUT"
-ls -la "$OUT" | sed 's/^/  /'
+echo "  $BASE.qra, scanned.qra, restored.$EXT, codes/ ($(find "$OUT/codes" -type f | wc -l) файлів)"

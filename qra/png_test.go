@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"image"
 	"image/color"
+	"image/jpeg"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -53,7 +54,7 @@ func TestWriteReadPNGRoundTrip(t *testing.T) {
 			if err := WritePNG(path, RenderPNG(c, tc.scale, tc.quiet)); err != nil {
 				t.Fatal(err)
 			}
-			m, size, err := ReadMatrixPNG(path)
+			m, size, err := ReadMatrixImage(path)
 			if err != nil {
 				t.Fatalf("v%d scale=%d quiet=%d: %v", v, tc.scale, tc.quiet, err)
 			}
@@ -68,14 +69,14 @@ func TestWriteReadPNGRoundTrip(t *testing.T) {
 	}
 }
 
-func TestReadMatrixPNGErrors(t *testing.T) {
+func TestReadMatrixImageErrors(t *testing.T) {
 	dir := t.TempDir()
-	if _, _, err := ReadMatrixPNG(filepath.Join(dir, "нема.png")); err == nil {
+	if _, _, err := ReadMatrixImage(filepath.Join(dir, "нема.png")); err == nil {
 		t.Fatal("відсутній файл")
 	}
 	notPng := filepath.Join(dir, "x.png")
 	os.WriteFile(notPng, []byte("not a png"), 0o644)
-	if _, _, err := ReadMatrixPNG(notPng); err == nil {
+	if _, _, err := ReadMatrixImage(notPng); err == nil {
 		t.Fatal("не PNG")
 	}
 	// повністю біле зображення
@@ -85,7 +86,7 @@ func TestReadMatrixPNGErrors(t *testing.T) {
 	}
 	bp := filepath.Join(dir, "blank.png")
 	WritePNG(bp, blank)
-	if _, _, err := ReadMatrixPNG(bp); err == nil {
+	if _, _, err := ReadMatrixImage(bp); err == nil {
 		t.Fatal("порожнє зображення має давати помилку")
 	}
 	// темний прямокутник без структури QR: розмір не підходить
@@ -101,7 +102,7 @@ func TestReadMatrixPNGErrors(t *testing.T) {
 	}
 	bx := filepath.Join(dir, "box.png")
 	WritePNG(bx, box)
-	if _, _, err := ReadMatrixPNG(bx); err == nil {
+	if _, _, err := ReadMatrixImage(bx); err == nil {
 		t.Fatal("прямокутник не є QR-кодом")
 	}
 	// WritePNG у неіснуючу теку
@@ -125,8 +126,17 @@ func TestReadMatrixPNGErrors(t *testing.T) {
 	f, _ := os.Create(cp)
 	png.Encode(f, rgb)
 	f.Close()
-	m, size, err := ReadMatrixPNG(cp)
+	m, size, err := ReadMatrixImage(cp)
 	if err != nil || size != c.Size || !bytes.Equal(m, c.Modules) {
 		t.Fatalf("кольоровий код: %v", err)
+	}
+	// JPEG із втратами теж читається: модулі великі, поріг яскравості їх не плутає
+	jp := filepath.Join(dir, "code.jpg")
+	jf, _ := os.Create(jp)
+	jpeg.Encode(jf, RenderPNG(c, 6, 4), &jpeg.Options{Quality: 80})
+	jf.Close()
+	m, size, err = ReadMatrixImage(jp)
+	if err != nil || size != c.Size || !bytes.Equal(m, c.Modules) {
+		t.Fatalf("JPEG-код: %v", err)
 	}
 }
