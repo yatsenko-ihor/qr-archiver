@@ -355,3 +355,12 @@ func TestCommandsErrors(t *testing.T) {
 		t.Error("scan лише першого коду має давати помилку обірваного потоку")
 	}
 }
+
+func TestPctAndRatio(t *testing.T) {
+	if pctStr(50, 200) != "25,0 %" || pctStr(1, 0) != "—" || pctStr(3590, 49206) != "7,3 %" {
+		t.Fatalf("pctStr: %q %q %q", pctStr(50, 200), pctStr(1, 0), pctStr(3590, 49206))
+	}
+	if ratioStr(49206, 3590) != "×13,7" || ratioStr(100, 100) != "×1" || ratioStr(1, 0) != "—" || ratioStr(1000, 993) != "×1,01" {
+		t.Fatalf("ratioStr: %q %q %q %q", ratioStr(49206, 3590), ratioStr(100, 100), ratioStr(1, 0), ratioStr(1000, 993))
+	}
+}

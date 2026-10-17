@@ -168,13 +168,10 @@ func cmdPack(args []string) error {
 	if err := os.WriteFile(out, qra, 0o644); err != nil {
 		return err
 	}
-	codec := map[uint8]string{codecStore: "без стиснення (файл не зменшився)", codecDeflate: "deflate"}[h.Codec]
 	v := int(h.QRVersion)
 	n := codesFor(len(qra), v, *noEcc)
-	fmt.Printf("Файл:        %s  %s\n", src, human(len(data)))
-	fmt.Printf("Стиснення:   %s → %s (%.1f %%)\n", codec, human(int(h.PayloadSize)), 100*float64(h.PayloadSize)/float64(max(len(data), 1)))
-	fmt.Printf("Контейнер:   %s  %s (заголовок %d Б), CRC32 %08x, %v\n", out, human(len(qra)), h.size(), h.CRC, time.Since(t0).Round(time.Millisecond))
-	fmt.Printf("QR-кодів:    %d, версія %d, по %d байт, замість %d без стиснення\n", n, v, Capacity(v, *noEcc), codesFor(len(data)+h.size(), v, *noEcc))
+	orig, stored := len(data), len(qra)
+	printPackSummary(src, out, h, orig, stored, n, v, *noEcc, time.Since(t0))
 	if *noCheck {
 		return nil
 	}
@@ -209,9 +206,51 @@ func cmdPack(args []string) error {
 	if *noEcc {
 		kind = "нестандартні, без корекції"
 	}
-	fmt.Printf("QR у пам'яті: %d кодів %d×%d (%s), %s модулів, у %d потоках за %v\n", n, v*4+17, v*4+17, kind, human(modules), runtime.GOMAXPROCS(0), time.Since(t1).Round(time.Millisecond))
-	fmt.Printf("Зчитано назад: лише корисні байти, пропущено %s модулів (службові, корекція %s, заголовки, заповнювачі) — збірка байт у байт ✓\n", human(skipped), human(ecc))
+	fmt.Printf("QR у пам'яті:   %d кодів %d×%d (%s), %s модулів, у %d потоках за %v\n", n, v*4+17, v*4+17, kind, human(modules), runtime.GOMAXPROCS(0), time.Since(t1).Round(time.Millisecond))
+	fmt.Printf("Після QR:       зчитано назад %s = 100,0 %% покладених; QR нічого не додав і не забрав ✓\n", human(stored))
+	fmt.Printf("                пропущено %s модулів: службові шаблони, корекція (%s), заголовки, заповнювачі\n", human(skipped), human(ecc))
 	return nil
+}
+
+// printPackSummary друкує показники стиснення так, щоб було видно, що відбувається до QR, а що після.
+func printPackSummary(src, out string, h Header, orig, stored, n, v int, noEcc bool, took time.Duration) {
+	codec := map[uint8]string{codecStore: "deflate не допоміг, байти як є", codecDeflate: "deflate"}[h.Codec]
+	saved := orig - stored
+	fmt.Printf("Файл:           %s  %s\n", src, human(orig))
+	fmt.Printf("До QR:          %s → %s у .qra (разом із заголовком %d Б)\n", codec, human(stored), h.size())
+	label := "економія"
+	if saved < 0 {
+		label = "перевитрата (заголовок)"
+	}
+	fmt.Printf("Ефективність:   лишилось %s від файлу, %s %s (%s), коефіцієнт стиснення %s\n",
+		pctStr(stored, orig), label, human(absi(saved)), pctStr(absi(saved), orig), ratioStr(orig, stored))
+	if h.Codec == codecStore || float64(stored) > 0.97*float64(orig) {
+		fmt.Printf("                файл уже стиснений усередині (відео, JPEG, архів тощо): без втрат менше не буде\n")
+	}
+	cap := Capacity(v, noEcc)
+	perCode := 0
+	if n > 0 {
+		perCode = orig / n
+	}
+	fmt.Printf("QR-кодів:       %d, версія %d по %d Б корисних; без стиснення було б %d; один код несе ~%s вихідного файлу\n",
+		n, v, cap, codesFor(orig+h.size(), v, noEcc), human(perCode))
+	fmt.Printf("Контейнер:      %s, CRC32 %08x, %v\n", out, h.CRC, took.Round(time.Millisecond))
+}
+
+// pctStr — a у відсотках від b, з комою як десятковим роздільником.
+func pctStr(a, b int) string {
+	if b == 0 {
+		return "—"
+	}
+	return strings.Replace(fmt.Sprintf("%.1f %%", 100*float64(a)/float64(b)), ".", ",", 1)
+}
+
+// ratioStr — класичний коефіцієнт стиснення before/after, наприклад ×13,7.
+func ratioStr(before, after int) string {
+	if after == 0 {
+		return "—"
+	}
+	return strings.Replace(fmt.Sprintf("×%.3g", float64(before)/float64(after)), ".", ",", 1)
 }
 
 // ---- unpack ----
